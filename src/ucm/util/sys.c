@@ -16,6 +16,7 @@
 
 #include <ucm/api/ucm.h>
 #include <ucm/util/log.h>
+#include <ucm/event/event.h>
 #include <ucm/mmap/mmap.h>
 #include <ucs/sys/math.h>
 #include <linux/mman.h>
@@ -348,4 +349,27 @@ char *ucm_concat_path(char *buffer, size_t max, const char *dir, const char *fil
     buffer[max + len] = '\0'; /* force close string */
 
     return buffer;
+}
+
+ucs_status_t ucm_mem_attr_get(const void *address, size_t length,
+                              ucs_memory_attr_t *mem_attr)
+{
+    ucm_event_installer_t *event_installer;
+    int failure = 0;
+
+    ucs_list_for_each(event_installer, &ucm_event_installer_list, list) {
+        if (NULL == event_installer->get_mem_attr) continue;
+        ucs_status_t status = event_installer->get_mem_attr(address, length,
+                                                            mem_attr);
+        if (status == UCS_OK) return UCS_OK;
+        if (status != UCS_ERR_INVALID_ADDR) failure = 1;
+    }
+
+    if (failure) {
+        mem_attr->mem_type = UCS_MEMORY_TYPE_UNKNOWN;
+        return UCS_ERR_NO_RESOURCE;
+    }
+
+    mem_attr->mem_type = UCS_MEMORY_TYPE_HOST;
+    return UCS_OK;
 }

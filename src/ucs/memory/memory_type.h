@@ -57,6 +57,16 @@ extern const char *ucs_memory_type_names[];
 extern const char *ucs_memory_type_descs[];
 
 
+typedef struct ucs_memory_attr {
+    ucs_memory_type_t mem_type;
+    union {
+        struct {
+            unsigned long long buf_id;
+        } cuda;
+    };
+} ucs_memory_attr_t;
+
+
 END_C_DECLS
 
 #endif

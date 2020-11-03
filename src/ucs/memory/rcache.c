@@ -19,6 +19,7 @@
 #include <ucs/sys/sys.h>
 #include <ucs/type/spinlock.h>
 #include <ucm/api/ucm.h>
+#include <ucm/util/sys.h>
 
 #include "rcache.h"
 #include "rcache_int.h"
@@ -528,11 +529,32 @@ static inline int ucs_rcache_region_test(ucs_rcache_region_t *region, int prot)
            ucs_test_all_flags(region->prot, prot);
 }
 
+static int ucs_rcache_region_still_valid(const ucs_rcache_region_t *region,
+                                         const ucs_memory_attr_t *mem_attr)
+{
+    if (region->mem_attr.mem_type == UCS_MEMORY_TYPE_HOST) return 1;
+
+    if (region->mem_attr.mem_type == UCS_MEMORY_TYPE_CUDA ||
+        region->mem_attr.mem_type == UCS_MEMORY_TYPE_CUDA_MANAGED) {
+        return region->mem_attr.cuda.buf_id == mem_attr->cuda.buf_id;
+    }
+
+    if (region->mem_attr.mem_type == UCS_MEMORY_TYPE_ROCM ||
+        region->mem_attr.mem_type == UCS_MEMORY_TYPE_ROCM_MANAGED) {
+        /* TODO how should we check the validity for ROCM? */
+        return 1;
+    }
+
+    ucs_assert(region->mem_attr.mem_type != UCS_MEMORY_TYPE_UNKNOWN);
+
+    return 0;
+}
+
 /* Lock must be held */
 static ucs_status_t
 ucs_rcache_check_overlap(ucs_rcache_t *rcache, ucs_pgt_addr_t *start,
-                         ucs_pgt_addr_t *end, int *prot, int *merged,
-                         ucs_rcache_region_t **region_p)
+                         ucs_pgt_addr_t *end, const ucs_memory_attr_t *mem_attr,
+                         int *prot, int *merged, ucs_rcache_region_t **region_p)
 {
     ucs_rcache_region_t *region, *tmp;
     ucs_list_link_t region_list;
@@ -549,6 +571,17 @@ ucs_rcache_check_overlap(ucs_rcache_t *rcache, ucs_pgt_addr_t *start,
     /* TODO check if any of the regions is locked */
 
     ucs_list_for_each_safe(region, tmp, &region_list, list) {
+
+        if (!ucs_rcache_region_still_valid(region, mem_attr)) {
+            ucs_rcache_region_trace(rcache, region,
+                                    "do not merge VA range 0x%lx..0x%lx with "
+                                    "overlapping region. Memory attributes "
+                                    "imply VA recycling.",
+                                    *start, *end);
+            ucs_rcache_region_invalidate(rcache, region,
+                                         UCS_RCACHE_REGION_PUT_FLAG_IN_PGTABLE);
+            continue;
+        }
 
         if ((*start >= region->super.start) && (*end <= region->super.end) &&
             ucs_rcache_region_test(region, *prot))
@@ -652,7 +685,8 @@ static ucs_status_t ucs_rcache_fill_pfn(ucs_rcache_region_t *region)
 
 static ucs_status_t
 ucs_rcache_create_region(ucs_rcache_t *rcache, void *address, size_t length,
-                         int prot, void *arg, ucs_rcache_region_t **region_p)
+                         const ucs_memory_attr_t *mem_attr, int prot, void *arg,
+                         ucs_rcache_region_t **region_p)
 {
     ucs_rcache_region_t *region;
     ucs_pgt_addr_t start, end;
@@ -661,6 +695,7 @@ ucs_rcache_create_region(ucs_rcache_t *rcache, void *address, size_t length,
 
     ucs_trace_func("rcache=%s, address=%p, length=%zu", rcache->name, address,
                    length);
+    ucs_assert(mem_attr->mem_type != UCS_MEMORY_TYPE_UNKNOWN);
 
     pthread_rwlock_wrlock(&rcache->pgt_lock);
 
@@ -675,7 +710,7 @@ retry:
 
     /* Check overlap with existing regions */
     status = UCS_PROFILE_CALL(ucs_rcache_check_overlap, rcache, &start, &end,
-                              &prot, &merged, &region);
+                              mem_attr, &prot, &merged, &region);
     if (status == UCS_ERR_ALREADY_EXISTS) {
         /* Found a matching region (it could have been added after we released
          * the lock)
@@ -722,6 +757,7 @@ retry:
     region->prot     = prot;
     region->flags    = UCS_RCACHE_REGION_FLAG_PGTABLE;
     region->refcount = 1;
+    region->mem_attr = *mem_attr;
     region->status = status =
         UCS_PROFILE_NAMED_CALL("mem_reg", rcache->params.ops->mem_reg,
                                rcache->params.context, rcache, arg, region,
@@ -782,6 +818,8 @@ ucs_status_t ucs_rcache_get(ucs_rcache_t *rcache, void *address, size_t length,
     ucs_pgt_addr_t start = (uintptr_t)address;
     ucs_pgt_region_t *pgt_region;
     ucs_rcache_region_t *region;
+    ucs_memory_attr_t mem_attr = { .mem_type = UCS_MEMORY_TYPE_UNKNOWN };
+    ucs_status_t status;
 
     ucs_trace_func("rcache=%s, address=%p, length=%zu", rcache->name, address,
                    length);
@@ -793,7 +831,14 @@ ucs_status_t ucs_rcache_get(ucs_rcache_t *rcache, void *address, size_t length,
                                       start);
         if (ucs_likely(pgt_region != NULL)) {
             region = ucs_derived_of(pgt_region, ucs_rcache_region_t);
+            if (region->mem_attr.mem_type == UCS_MEMORY_TYPE_HOST) {
+                mem_attr.mem_type = UCS_MEMORY_TYPE_HOST;
+            } else {
+                status = ucm_mem_attr_get(address, length, &mem_attr);
+                if (status != UCS_OK) return status;
+            }
             if (((start + length) <= region->super.end) &&
+                ucs_rcache_region_still_valid(region, &mem_attr) &&
                 ucs_rcache_region_test(region, prot))
             {
                 ucs_rcache_region_hold(rcache, region);
@@ -812,8 +857,12 @@ ucs_status_t ucs_rcache_get(ucs_rcache_t *rcache, void *address, size_t length,
      * - could not find cached region
      * - found unregistered region
      */
+    if (ucs_unlikely(mem_attr.mem_type == UCS_MEMORY_TYPE_UNKNOWN)) {
+        status = ucm_mem_attr_get(address, length, &mem_attr);
+        if (status != UCS_OK) return status;
+    }
     return UCS_PROFILE_CALL(ucs_rcache_create_region, rcache, address, length,
-                            prot, arg, region_p);
+                            &mem_attr, prot, arg, region_p);
 }
 
 void ucs_rcache_region_put(ucs_rcache_t *rcache, ucs_rcache_region_t *region)

@@ -9,6 +9,8 @@
 #define UCM_UTIL_SYS_H_
 
 #include <stddef.h>
+#include <ucs/memory/memory_type.h>
+#include <ucs/type/status.h>
 
 
 /*
@@ -86,6 +88,19 @@ void ucm_prevent_dl_unload();
  * @return Result buffer.
  */
 char *ucm_concat_path(char *buffer, size_t max, const char *dir, const char *file);
+
+
+/*
+ * Get the memory attributes of a given address and length.
+ *
+ * @param [in]  address   Buffer address.
+ * @param [in]  length    Buffer length.
+ * @param [out] mem_attr  Memory attributes as defined by @ref ucs_memory_attr_t.
+ *
+ * @return Error code as defined by @ref ucs_status_t.
+ */
+ucs_status_t ucm_mem_attr_get(const void *address, size_t length,
+                              ucs_memory_attr_t *mem_attr);
 
 
 #endif

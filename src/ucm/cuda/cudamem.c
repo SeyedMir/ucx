@@ -19,6 +19,8 @@
 #include <ucs/debug/assert.h>
 #include <ucs/sys/compiler.h>
 #include <ucs/sys/preprocessor.h>
+#include <ucs/memory/memory_type.h>
+#include <ucs/type/status.h>
 
 #include <sys/mman.h>
 #include <pthread.h>
@@ -455,9 +457,51 @@ static void ucm_cudamem_get_existing_alloc(ucm_event_handler_t *handler)
     }
 }
 
+static ucs_status_t ucm_cudamem_attr_get(const void *address, size_t length,
+                                         ucs_memory_attr_t *mem_attr)
+{
+    if (address == NULL) return UCS_ERR_INVALID_ADDR;
+
+#define UCM_CUDA_MEM_QUERY_NUM_ATTRS 3
+    CUmemorytype cuda_mem_type = (CUmemorytype)0;
+    uint32_t is_managed        = 0;
+    CUpointer_attribute attr_type[UCM_CUDA_MEM_QUERY_NUM_ATTRS];
+    void *attr_data[UCM_CUDA_MEM_QUERY_NUM_ATTRS];
+    CUresult cu_err;
+
+    attr_type[0] = CU_POINTER_ATTRIBUTE_MEMORY_TYPE;
+    attr_data[0] = &cuda_mem_type;
+    attr_type[1] = CU_POINTER_ATTRIBUTE_IS_MANAGED;
+    attr_data[1] = &is_managed;
+    attr_type[2] = CU_POINTER_ATTRIBUTE_BUFFER_ID;
+    attr_data[2] = &mem_attr->cuda.buf_id;
+
+    cu_err = cuPointerGetAttributes(ucs_static_array_size(attr_data),
+                                    attr_type, attr_data,
+                                    (CUdeviceptr)address);
+    if (cu_err == CUDA_SUCCESS) {
+        switch (cuda_mem_type) {
+            case CU_MEMORYTYPE_DEVICE:
+                mem_attr->mem_type = is_managed ? UCS_MEMORY_TYPE_CUDA_MANAGED
+                                                : UCS_MEMORY_TYPE_CUDA;
+                break;
+            case CU_MEMORYTYPE_HOST:
+                mem_attr->mem_type = UCS_MEMORY_TYPE_HOST;
+                break;
+            default:
+                return UCS_ERR_INVALID_ADDR;
+        }
+        return UCS_OK;
+    }
+
+    ucm_error("failed to get CUDA pointer attributes");
+    return UCS_ERR_NO_RESOURCE;
+}
+
 static ucm_event_installer_t ucm_cuda_initializer = {
     .install            = ucm_cudamem_install,
-    .get_existing_alloc = ucm_cudamem_get_existing_alloc
+    .get_existing_alloc = ucm_cudamem_get_existing_alloc,
+    .get_mem_attr       = ucm_cudamem_attr_get
 };
 
 UCS_STATIC_INIT {

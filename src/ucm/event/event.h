@@ -33,6 +33,8 @@ typedef struct ucm_event_handler {
 typedef struct ucm_event_installer {
     ucs_status_t          (*install)(int events);
     void                  (*get_existing_alloc)(ucm_event_handler_t *handler);
+    ucs_status_t          (*get_mem_attr)(const void *address, size_t length,
+                                          ucs_memory_attr_t *mem_attr);
     ucs_list_link_t       list;
 } ucm_event_installer_t;
 
