@@ -17,6 +17,7 @@
 #include <ucs/datastruct/queue_types.h>
 #include <ucs/datastruct/mpool.h>
 #include <ucs/stats/stats_fwd.h>
+#include <ucm/mem_attr/mem_attr.h>
 #include <sys/mman.h>
 
 
@@ -135,11 +136,12 @@ struct ucs_rcache_region {
     uint16_t               flags;    /**< Status flags. Protected by page table lock. */
     union {
         uint64_t           priv;     /**< Used internally */
-        unsigned long     *pfn;      /**< Pointer to PFN array. In case if requested 
+        unsigned long      *pfn;     /**< Pointer to PFN array. In case if requested
                                           evaluation more than 1 page - PFN array is
                                           allocated, if 1 page requested - used
                                           in-place priv value. */
     };
+    ucm_mem_attr_h         mem_attr;
 };
 
 

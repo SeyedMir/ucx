@@ -82,6 +82,7 @@ gtest_SOURCES = \
 	common/test.cc \
 	\
 	ucm/malloc_hook.cc \
+	ucm/mem_attr.cc \
 	\
 	uct/test_amo.cc \
 	uct/test_amo_add_xor.cc \

@@ -15,13 +15,15 @@ libucm_la_CPPFLAGS = $(BASE_CPPFLAGS) -DUCM_MALLOC_PREFIX=ucm_dl
 libucm_la_CFLAGS   = $(BASE_CFLAGS) $(CFLAGS_NO_DEPRECATED)
 
 nobase_dist_libucm_la_HEADERS = \
-	api/ucm.h
+	api/ucm.h \
+	mem_attr/mem_attr.h
 
 noinst_HEADERS = \
 	event/event.h \
 	malloc/malloc_hook.h \
 	malloc/allocator.h \
 	mmap/mmap.h \
+	mem_attr/mem_attr_int.h \
 	util/khash_safe.h \
 	util/replace.h \
 	util/log.h \
@@ -37,6 +39,7 @@ libucm_la_SOURCES = \
 	event/event.c \
 	malloc/malloc_hook.c \
 	mmap/install.c \
+	mem_attr/mem_attr.c \
 	util/replace.c \
 	util/log.c \
 	util/reloc.c \

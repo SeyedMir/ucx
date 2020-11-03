@@ -13,6 +13,8 @@
 #include <ucm/util/log.h>
 #include <ucm/util/reloc.h>
 #include <ucm/util/replace.h>
+#include <ucm/mem_attr/mem_attr_int.h>
+#include <ucs/debug/memtrack.h>
 #include <ucs/debug/assert.h>
 #include <ucs/sys/compiler.h>
 #include <ucs/sys/preprocessor.h>
@@ -180,9 +182,73 @@ static void ucm_rocmmem_get_existing_alloc(ucm_event_handler_t *handler)
 {
 }
 
+typedef struct ucm_rocmmem_attr {
+    ucm_mem_attr_t super;
+    /* TODO what rocm memory attributes do we need? */
+} ucm_rocmmem_attr_t;
+
+static int ucm_rocmmem_attr_cmp(const ucm_mem_attr_h mem_attr1,
+                                const ucm_mem_attr_h mem_attr2)
+{
+    /* TODO how should we compare two rocm memory attributes? */
+    return 0;
+}
+
+static void ucm_rocmmem_attr_destroy(ucm_mem_attr_h mem_attr)
+{
+    ucm_rocmmem_attr_t *rocm_mem_attr;
+    rocm_mem_attr = ucs_derived_of(mem_attr,ucm_rocmmem_attr_t);
+    ucs_free(rocm_mem_attr);
+}
+
+static ucs_status_t ucm_rocmmem_attr_get(const void *address, size_t length,
+                                         ucm_mem_attr_h *mem_attr_p)
+{
+    hsa_status_t status;
+    hsa_amd_pointer_info_t info = {
+        .size = sizeof(hsa_amd_pointer_info_t),
+    };
+
+    if (address == NULL) return UCS_ERR_INVALID_ADDR;
+
+    status = hsa_amd_pointer_info((void*)address, &info, NULL, NULL, NULL);
+    if (status == HSA_STATUS_SUCCESS) {
+        hsa_device_type_t dev_type;
+        ucm_rocmmem_attr_t *mem_attr;
+        if (info.type == HSA_EXT_POINTER_TYPE_UNKNOWN) return UCS_ERR_INVALID_ADDR;
+        status = hsa_agent_get_info(info.agentOwner, HSA_AGENT_INFO_DEVICE, &dev_type);
+        if (status == HSA_STATUS_SUCCESS) {
+            ucs_memory_type_t mem_type;
+            switch (dev_type) {
+                case HSA_DEVICE_TYPE_GPU:
+                    mem_type = UCS_MEMORY_TYPE_ROCM;
+                    break;
+                case HSA_DEVICE_TYPE_CPU:
+                    mem_type = UCS_MEMORY_TYPE_HOST;
+                    break;
+                default:
+                    return UCS_ERR_INVALID_ADDR;
+            }
+
+            mem_attr = ucs_malloc(sizeof(*mem_attr),"rocmmem_attr");
+            if (mem_attr == NULL) return UCS_ERR_NO_MEMORY;
+
+            mem_attr->super.mem_type = mem_type;
+            mem_attr->super.cmp      = &ucm_rocmmem_attr_cmp;
+            mem_attr->super.destroy  = &ucm_rocmmem_attr_destroy;
+            *mem_attr_p = &mem_attr->super;
+            return UCS_OK;
+        }
+    }
+
+    ucm_error("failed to get AMD pointer info");
+    return UCS_ERR_NO_RESOURCE;
+}
+
 static ucm_event_installer_t ucm_rocm_initializer = {
     .install            = ucm_rocmmem_install,
-    .get_existing_alloc = ucm_rocmmem_get_existing_alloc
+    .get_existing_alloc = ucm_rocmmem_get_existing_alloc,
+    .get_mem_attr       = ucm_rocmmem_attr_get
 };
 
 UCS_STATIC_INIT {

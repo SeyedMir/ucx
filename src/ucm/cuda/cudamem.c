@@ -17,6 +17,9 @@
 #include <ucm/util/reloc.h>
 #include <ucm/util/replace.h>
 #include <ucm/util/sys.h>
+#include <ucm/mem_attr/mem_attr_int.h>
+#include <ucs/debug/memtrack.h>
+#include <ucs/debug/assert.h>
 #include <ucs/sys/compiler.h>
 #include <ucs/sys/preprocessor.h>
 
@@ -346,9 +349,85 @@ static void ucm_cudamem_get_existing_alloc(ucm_event_handler_t *handler)
     }
 }
 
+typedef struct ucm_cudamem_attr {
+    ucm_mem_attr_t super;
+    unsigned long long buf_id;
+} ucm_cudamem_attr_t;
+
+static int ucm_cudamem_attr_cmp(const ucm_mem_attr_h mem_attr1,
+                                const ucm_mem_attr_h mem_attr2)
+{
+    ucm_cudamem_attr_t *cuda_mem_attr1, *cuda_mem_attr2;
+    cuda_mem_attr1 = ucs_derived_of(mem_attr1, ucm_cudamem_attr_t);
+    cuda_mem_attr2 = ucs_derived_of(mem_attr2, ucm_cudamem_attr_t);
+    if (cuda_mem_attr1->buf_id == cuda_mem_attr2->buf_id) return 0;
+    return 1;
+}
+
+static void ucm_cudamem_attr_destroy(ucm_mem_attr_h mem_attr)
+{
+    ucm_cudamem_attr_t *cuda_mem_attr;
+    cuda_mem_attr = ucs_derived_of(mem_attr,ucm_cudamem_attr_t);
+    ucs_free(cuda_mem_attr);
+}
+
+static ucs_status_t ucm_cudamem_attr_get(const void *address, size_t length,
+                                         ucm_mem_attr_h *mem_attr_p)
+{
+#define UCM_CUDA_MEM_QUERY_NUM_ATTRS 3
+    CUmemorytype cuda_mem_type = (CUmemorytype)0;
+    uint32_t is_managed        = 0;
+    unsigned long long buf_id  = 0;
+    CUpointer_attribute attr_type[UCM_CUDA_MEM_QUERY_NUM_ATTRS];
+    void *attr_data[UCM_CUDA_MEM_QUERY_NUM_ATTRS];
+    CUresult cu_err;
+
+    if (address == NULL) return UCS_ERR_INVALID_ADDR;
+
+    attr_type[0] = CU_POINTER_ATTRIBUTE_MEMORY_TYPE;
+    attr_data[0] = &cuda_mem_type;
+    attr_type[1] = CU_POINTER_ATTRIBUTE_IS_MANAGED;
+    attr_data[1] = &is_managed;
+    attr_type[2] = CU_POINTER_ATTRIBUTE_BUFFER_ID;
+    attr_data[2] = &buf_id;
+
+    cu_err = cuPointerGetAttributes(ucs_static_array_size(attr_data),
+                                    attr_type, attr_data,
+                                    (CUdeviceptr)address);
+    if (cu_err == CUDA_SUCCESS) {
+        ucs_memory_type_t mem_type;
+        ucm_cudamem_attr_t *mem_attr;
+        switch (cuda_mem_type) {
+            case CU_MEMORYTYPE_DEVICE:
+                mem_type = is_managed ? UCS_MEMORY_TYPE_CUDA_MANAGED
+                                      : UCS_MEMORY_TYPE_CUDA;
+                break;
+            case CU_MEMORYTYPE_HOST:
+                mem_type = UCS_MEMORY_TYPE_HOST;
+                break;
+            default:
+                return UCS_ERR_INVALID_ADDR;
+        }
+
+        mem_attr = ucs_malloc(sizeof(*mem_attr),"cudamem_attr");
+        if (mem_attr == NULL) return UCS_ERR_NO_MEMORY;
+
+        mem_attr->buf_id         = buf_id;
+        mem_attr->super.mem_type = mem_type;
+        mem_attr->super.cmp      = &ucm_cudamem_attr_cmp;
+        mem_attr->super.destroy  = &ucm_cudamem_attr_destroy;
+        *mem_attr_p = &mem_attr->super;
+        return UCS_OK;
+    }
+
+    ucm_error("failed to get CUDA pointer attributes");
+    return UCS_ERR_NO_RESOURCE;
+}
+
 static ucm_event_installer_t ucm_cuda_initializer = {
     .install            = ucm_cudamem_install,
-    .get_existing_alloc = ucm_cudamem_get_existing_alloc
+    .get_existing_alloc = ucm_cudamem_get_existing_alloc,
+    .get_mem_attr       = ucm_cudamem_attr_get
 };
 
 UCS_STATIC_INIT

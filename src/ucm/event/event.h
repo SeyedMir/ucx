@@ -9,6 +9,7 @@
 
 #include <ucm/api/ucm.h>
 #include <ucm/util/log.h>
+#include <ucm/mem_attr/mem_attr.h>
 #include <ucs/datastruct/list.h>
 #include <ucs/type/status.h>
 
@@ -34,6 +35,8 @@ typedef struct ucm_event_handler {
 typedef struct ucm_event_installer {
     ucs_status_t          (*install)(int events);
     void                  (*get_existing_alloc)(ucm_event_handler_t *handler);
+    ucs_status_t          (*get_mem_attr)(const void *address, size_t length,
+                                          ucm_mem_attr_h *mem_attr_p);
     ucs_list_link_t       list;
 } ucm_event_installer_t;
 
