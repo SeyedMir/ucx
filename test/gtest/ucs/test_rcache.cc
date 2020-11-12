@@ -5,6 +5,7 @@
  */
 
 #include <common/test.h>
+#include <common/mem_buffer.h>
 extern "C" {
 #include <ucs/arch/atomic.h>
 #include <ucs/sys/math.h>
@@ -45,7 +46,7 @@ UCS_TEST_F(test_rcache_basic, create_fail) {
 }
 
 
-class test_rcache : public ucs::test {
+class test_rcache : public ucs::test_with_param<ucs_memory_type_t> {
 protected:
 
     struct region {
@@ -58,7 +59,7 @@ protected:
     }
 
     virtual void init() {
-        ucs::test::init();
+        ucs::test_with_param<ucs_memory_type_t>::init();
         static const ucs_rcache_ops_t ops = {
             mem_reg_cb,
             mem_dereg_cb,
@@ -68,7 +69,7 @@ protected:
             sizeof(region),
             UCS_PGT_ADDR_ALIGN,
             ucs_get_page_size(),
-            UCM_EVENT_VM_UNMAPPED,
+            UCM_EVENT_VM_UNMAPPED | UCM_EVENT_MEM_TYPE_FREE,
             1000,
             &ops,
             reinterpret_cast<void*>(this),
@@ -81,7 +82,7 @@ protected:
     virtual void cleanup() {
         m_rcache.reset();
         EXPECT_EQ(0u, m_reg_count);
-        ucs::test::cleanup();
+        ucs::test_with_param<ucs_memory_type_t>::cleanup();
     }
 
     region *get(void *address, size_t length, int prot = PROT_READ|PROT_WRITE) {
@@ -103,7 +104,8 @@ protected:
     virtual ucs_status_t mem_reg(region *region)
     {
         int mem_prot = ucs_get_mem_prot(region->super.super.start, region->super.super.end);
-        if (!ucs_test_all_flags(mem_prot, region->super.prot)) {
+        if (region->super.mem_attr.mem_type == UCS_MEMORY_TYPE_HOST &&
+            !ucs_test_all_flags(mem_prot, region->super.prot)) {
             ucs_debug("protection error mem_prot " UCS_RCACHE_PROT_FMT " wanted " UCS_RCACHE_PROT_FMT,
                       UCS_RCACHE_PROT_ARG(mem_prot),
                       UCS_RCACHE_PROT_ARG(region->super.prot));
@@ -238,15 +240,38 @@ out:
     return pa;
 }
 
-UCS_MT_TEST_F(test_rcache, basic, 10) {
+#define UCS_RCACHE_MALLOC_P(size, ptr) \
+    ptr = mem_buffer::allocate(size, GetParam());
+#define UCS_RCACHE_FREE_P(ptr) \
+    mem_buffer::release(ptr, GetParam());
+#define UCS_RCACHE_ALLOC_PAGES_P(size, prot, ptr) \
+    do { \
+        if (GetParam() == UCS_MEMORY_TYPE_HOST) { \
+            ptr = alloc_pages(size, prot); \
+        } else { \
+            UCS_RCACHE_MALLOC_P(size, ptr); \
+        } \
+    } while (0);
+
+#define UCS_RCACHE_RELEASE_PAGES_P(ptr, size) \
+    do { \
+        if (GetParam() == UCS_MEMORY_TYPE_HOST) { \
+            munmap(ptr, size); \
+        } else { \
+            UCS_RCACHE_FREE_P(ptr); \
+        } \
+    } while (0);
+
+UCS_MT_TEST_P(test_rcache, basic, 10) {
     static const size_t size = 1 * 1024 * 1024;
-    void *ptr = malloc(size);
+    void *ptr;
+    UCS_RCACHE_MALLOC_P(size, ptr);
     region *region = get(ptr, size);
     put(region);
-    free(ptr);
+    UCS_RCACHE_FREE_P(ptr);
 }
 
-UCS_MT_TEST_F(test_rcache, get_unmapped, 6) {
+UCS_MT_TEST_P(test_rcache, get_unmapped, 6) {
     /*
      *  - allocate, get, put, get again -> should be same id
      *  - release, get again -> should be different id
@@ -257,7 +282,7 @@ UCS_MT_TEST_F(test_rcache, get_unmapped, 6) {
     uint32_t id;
     void *ptr;
 
-    ptr = malloc(size);
+    UCS_RCACHE_MALLOC_P(size, ptr);
     region = get(ptr, size);
     id = region->id;
     pa = virt_to_phys(region->super.super.start);
@@ -265,9 +290,9 @@ UCS_MT_TEST_F(test_rcache, get_unmapped, 6) {
 
     region = get(ptr, size);
     put(region);
-    free(ptr);
+    UCS_RCACHE_FREE_P(ptr);
 
-    ptr = malloc(size);
+    UCS_RCACHE_MALLOC_P(size, ptr);
     region = get(ptr, size);
     ucs_debug("got region id %d", region->id);
     new_pa = virt_to_phys(region->super.super.start);
@@ -280,10 +305,31 @@ UCS_MT_TEST_F(test_rcache, get_unmapped, 6) {
         ucs_debug("physical address not changed (0x%lx)", pa);
     }
     put(region);
-    free(ptr);
+    UCS_RCACHE_FREE_P(ptr);
 }
 
-UCS_MT_TEST_F(test_rcache, merge, 6) {
+UCS_TEST_SKIP_COND_P(test_rcache, non_host_get_free_get,
+                     GetParam() == UCS_MEMORY_TYPE_HOST) {
+    /* All new non-host allocations must lead to a cache miss.
+     * So, we must see a different region id.
+     */
+    static const size_t size = 1 * 1024 * 1024;
+    region *region;
+    uint32_t prev_id = 0;
+    void *ptr;
+
+    for (size_t i = 0; i < 10; i++) {
+        UCS_RCACHE_MALLOC_P(size, ptr);
+        region = get(ptr, size);
+        EXPECT_EQ(uint32_t(MAGIC), region->magic);
+        EXPECT_NE(prev_id, region->id);
+        prev_id = region->id;
+        put(region);
+        UCS_RCACHE_FREE_P(ptr);
+    }
+}
+
+UCS_MT_TEST_P(test_rcache, merge, 6) {
     /*
      * +---------+-----+---------+
      * | region1 | pad | region2 |
@@ -298,7 +344,7 @@ UCS_MT_TEST_F(test_rcache, merge, 6) {
     void *ptr1, *ptr2, *ptr3, *mem;
     size_t size3;
 
-    mem = alloc_pages(size1 + pad + size2, PROT_READ|PROT_WRITE);
+    UCS_RCACHE_ALLOC_PAGES_P(size1 + pad + size2, PROT_READ|PROT_WRITE, mem);
 
     /* Create region1 */
     ptr1 = (char*)mem;
@@ -328,10 +374,10 @@ UCS_MT_TEST_F(test_rcache, merge, 6) {
     put(region2);
     put(region3);
 
-    munmap(mem, size1 + pad + size2);
+    UCS_RCACHE_RELEASE_PAGES_P(mem, size1 + pad + size2);
 }
 
-UCS_MT_TEST_F(test_rcache, merge_inv, 6) {
+UCS_MT_TEST_P(test_rcache, merge_inv, 6) {
     /*
      * Merge with another region which causes immediate invalidation of the
      * other region.
@@ -348,7 +394,7 @@ UCS_MT_TEST_F(test_rcache, merge_inv, 6) {
     void *ptr1, *ptr2, *mem;
     uint32_t id1;
 
-    mem = alloc_pages(pad + size2, PROT_READ|PROT_WRITE);
+    UCS_RCACHE_ALLOC_PAGES_P(pad + size2, PROT_READ|PROT_WRITE, mem);
 
     /* Create region1 */
     ptr1 = (char*)mem;
@@ -362,20 +408,22 @@ UCS_MT_TEST_F(test_rcache, merge_inv, 6) {
     EXPECT_NE(id1, region2->id);
     put(region2);
 
-    munmap(mem, pad + size2);
+    UCS_RCACHE_RELEASE_PAGES_P(mem, pad + size2);
 }
 
-UCS_MT_TEST_F(test_rcache, release_inuse, 6) {
+UCS_MT_TEST_P(test_rcache, release_inuse, 6) {
     static const size_t size = 1 * 1024 * 1024;
 
-    void *ptr1 = malloc(size);
+    void *ptr1;
+    UCS_RCACHE_MALLOC_P(size, ptr1);
     region *region1 = get(ptr1, size);
-    free(ptr1);
+    UCS_RCACHE_FREE_P(ptr1);
 
-    void *ptr2 = malloc(size);
+    void *ptr2;
+    UCS_RCACHE_MALLOC_P(size, ptr2);
     region *region2 = get(ptr2, size);
     put(region2);
-    free(ptr2);
+    UCS_RCACHE_FREE_P(ptr2);
 
     /* key should still be valid */
     EXPECT_EQ(uint32_t(MAGIC), region1->magic);
@@ -909,3 +957,6 @@ UCS_TEST_F(test_rcache_pfn, enum_pfn) {
         munmap(region, len);
     }
 }
+
+INSTANTIATE_TEST_CASE_P(mem_type, test_rcache,
+                        ::testing::ValuesIn(mem_buffer::supported_mem_types()));
