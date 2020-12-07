@@ -4,8 +4,8 @@
  * See file LICENSE for terms.
  */
 
-#include <common/test.h>
 #include <common/mem_buffer.h>
+#include <common/test.h>
 extern "C" {
 #include <ucs/arch/atomic.h>
 #include <ucs/sys/math.h>
@@ -45,7 +45,8 @@ UCS_TEST_F(test_rcache_basic, create_fail) {
     }
 }
 
-class test_rcache_base {
+class test_rcache_base
+{
 protected:
 
     struct region {
@@ -54,7 +55,9 @@ protected:
         uint32_t            id;
     };
 
-    test_rcache_base() : m_reg_count(0), m_ptr(NULL) {}
+    test_rcache_base() : m_reg_count(0), m_ptr(NULL)
+    {
+    }
 
     region *get(void *address, size_t length, int prot = PROT_READ|PROT_WRITE) {
         ucs_status_t status;
@@ -119,65 +122,64 @@ protected:
                                    void *arg, ucs_rcache_region_t *r,
                                    uint16_t rcache_mem_reg_flags)
     {
-        return reinterpret_cast<test_rcache_base*>(context)->mem_reg(
-                        ucs_derived_of(r, struct region));
+        return reinterpret_cast<test_rcache_base *>(context)->mem_reg(
+            ucs_derived_of(r, struct region));
     }
 
     static void mem_dereg_cb(void *context, ucs_rcache_t *rcache,
                              ucs_rcache_region_t *r)
     {
-        reinterpret_cast<test_rcache_base*>(context)->mem_dereg(
-                        ucs_derived_of(r, struct region));
+        reinterpret_cast<test_rcache_base *>(context)->mem_dereg(
+            ucs_derived_of(r, struct region));
     }
 
     static void dump_region_cb(void *context, ucs_rcache_t *rcache,
                                ucs_rcache_region_t *r, char *buf, size_t max)
     {
-        reinterpret_cast<test_rcache_base*>(context)->dump_region(
-                        ucs_derived_of(r, struct region), buf, max);
+        reinterpret_cast<test_rcache_base *>(context)->dump_region(
+            ucs_derived_of(r, struct region), buf, max);
     }
 
     static const ucs_rcache_ops_t ops;
     static const uint32_t MAGIC = 0x05e905e9;
     static volatile uint32_t next_id;
     volatile uint32_t m_reg_count;
-    ucs::handle<ucs_rcache_t*> m_rcache;
-    void * volatile m_ptr;
+    ucs::handle<ucs_rcache_t *> m_rcache;
+    void *volatile m_ptr;
 };
 
-const ucs_rcache_ops_t test_rcache_base::ops = {
-    test_rcache_base::mem_reg_cb,
-    test_rcache_base::mem_dereg_cb,
-    test_rcache_base::dump_region_cb
-};
-volatile uint32_t test_rcache_base::next_id = 1;
+const ucs_rcache_ops_t test_rcache_base::ops = {test_rcache_base::mem_reg_cb,
+                                                test_rcache_base::mem_dereg_cb,
+                                                test_rcache_base::dump_region_cb};
+volatile uint32_t test_rcache_base::next_id  = 1;
 
-class test_rcache_1 : public test_rcache_base, public ucs::test {
+class test_rcache_1 : public test_rcache_base, public ucs::test
+{
 protected:
-
-    virtual void init() {
+    virtual void init()
+    {
         ucs::test::init();
-        ucs_rcache_params_t params = {
-            sizeof(region),
-            UCS_PGT_ADDR_ALIGN,
-            ucs_get_page_size(),
-            UCM_EVENT_VM_UNMAPPED,
-            1000,
-            &ops,
-            reinterpret_cast<void*>(this),
-            0
-        };
-        UCS_TEST_CREATE_HANDLE_IF_SUPPORTED(ucs_rcache_t*, m_rcache, ucs_rcache_destroy,
-                                            ucs_rcache_create, &params, "test", ucs_stats_get_root());
+        ucs_rcache_params_t params = {sizeof(region),
+                                      UCS_PGT_ADDR_ALIGN,
+                                      ucs_get_page_size(),
+                                      UCM_EVENT_VM_UNMAPPED,
+                                      1000,
+                                      &ops,
+                                      reinterpret_cast<void *>(this),
+                                      0};
+        UCS_TEST_CREATE_HANDLE_IF_SUPPORTED(ucs_rcache_t *, m_rcache,
+                                            ucs_rcache_destroy, ucs_rcache_create,
+                                            &params, "test", ucs_stats_get_root());
     }
 
-    virtual void cleanup() {
+    virtual void cleanup()
+    {
         m_rcache.reset();
         EXPECT_EQ(0u, m_reg_count);
         ucs::test::cleanup();
     }
 
-    void* shared_malloc(size_t size)
+    void *shared_malloc(size_t size)
     {
         if (barrier()) {
             m_ptr = malloc(size);
@@ -203,11 +205,12 @@ protected:
  *
  * don't merge with inaccessible pages
  */
-UCS_MT_TEST_F(test_rcache_1, merge_with_unwritable, 6) {
+UCS_MT_TEST_F(test_rcache_1, merge_with_unwritable, 6)
+{
     static const size_t size1 = 10 * ucs_get_page_size();
-    static const size_t size2 =  8 * ucs_get_page_size();
+    static const size_t size2 = 8 * ucs_get_page_size();
 
-    void *mem = alloc_pages(size1 + size2, PROT_READ);
+    void *mem  = alloc_pages(size1 + size2, PROT_READ);
     void *ptr1 = mem;
 
     /* Set region1 to map all of 1-st part of the 2-nd */
@@ -215,8 +218,8 @@ UCS_MT_TEST_F(test_rcache_1, merge_with_unwritable, 6) {
     EXPECT_EQ(PROT_READ, region1->super.prot);
 
     /* Set 2-nd part as write-only */
-    void *ptr2 = (char*)mem + size1;
-    int ret = mprotect(ptr2, size2, PROT_WRITE);
+    void *ptr2 = (char *)mem + size1;
+    int ret    = mprotect(ptr2, size2, PROT_WRITE);
     ASSERT_EQ(0, ret) << strerror(errno);
 
     /* Get 2-nd part - should not merge with region1 */
@@ -232,22 +235,23 @@ UCS_MT_TEST_F(test_rcache_1, merge_with_unwritable, 6) {
 }
 
 /* don't expand prot of our region if our pages cant support it */
-UCS_MT_TEST_F(test_rcache_1, merge_merge_unwritable, 6) {
+UCS_MT_TEST_F(test_rcache_1, merge_merge_unwritable, 6)
+{
     static const size_t size1 = 10 * ucs_get_page_size();
-    static const size_t size2 =  8 * ucs_get_page_size();
+    static const size_t size2 = 8 * ucs_get_page_size();
 
-    void *mem = alloc_pages(size1 + size2, PROT_READ|PROT_WRITE);
+    void *mem = alloc_pages(size1 + size2, PROT_READ | PROT_WRITE);
     ASSERT_NE(MAP_FAILED, mem) << strerror(errno);
 
     void *ptr1 = mem;
 
     /* Set region1 to map all of 1-st part of the 2-nd */
-    region *region1 = get(ptr1, size1 + size2 / 2, PROT_READ|PROT_WRITE);
-    EXPECT_EQ(PROT_READ|PROT_WRITE, region1->super.prot);
+    region *region1 = get(ptr1, size1 + size2 / 2, PROT_READ | PROT_WRITE);
+    EXPECT_EQ(PROT_READ | PROT_WRITE, region1->super.prot);
 
     /* Set 2-nd part as read-only */
-    void *ptr2 = (char*)mem + size1;
-    int ret = mprotect(ptr2, size2, PROT_READ);
+    void *ptr2 = (char *)mem + size1;
+    int ret    = mprotect(ptr2, size2, PROT_READ);
     ASSERT_EQ(0, ret) << strerror(errno);
 
     /* Get 2-nd part - should not merge because we are read-only */
@@ -261,11 +265,12 @@ UCS_MT_TEST_F(test_rcache_1, merge_merge_unwritable, 6) {
 }
 
 /* expand prot of new region to support existing regions */
-UCS_MT_TEST_F(test_rcache_1, merge_expand_prot, 6) {
+UCS_MT_TEST_F(test_rcache_1, merge_expand_prot, 6)
+{
     static const size_t size1 = 10 * ucs_get_page_size();
-    static const size_t size2 =  8 * ucs_get_page_size();
+    static const size_t size2 = 8 * ucs_get_page_size();
 
-    void *mem = alloc_pages(size1 + size2, PROT_READ|PROT_WRITE);
+    void *mem = alloc_pages(size1 + size2, PROT_READ | PROT_WRITE);
     ASSERT_NE(MAP_FAILED, mem) << strerror(errno);
 
     void *ptr1 = mem;
@@ -275,7 +280,7 @@ UCS_MT_TEST_F(test_rcache_1, merge_expand_prot, 6) {
     EXPECT_EQ(PROT_READ, region1->super.prot);
 
     /* Get 2-nd part - should merge with region1 with full protection */
-    void *ptr2 = (char*)mem + size1;
+    void *ptr2      = (char *)mem + size1;
     region *region2 = get(ptr2, size2, PROT_WRITE);
     if (region1->super.flags & UCS_RCACHE_REGION_FLAG_PGTABLE) {
         EXPECT_LE(region2->super.super.start, (uintptr_t)ptr1);
@@ -304,42 +309,43 @@ UCS_MT_TEST_F(test_rcache_1, merge_expand_prot, 6) {
 UCS_MT_TEST_F(test_rcache_1, merge_invalid_prot, 6)
 {
     static const size_t size1 = 10 * ucs_get_page_size();
-    static const size_t size2 =  8 * ucs_get_page_size();
+    static const size_t size2 = 8 * ucs_get_page_size();
     int ret;
 
-    void *mem = alloc_pages(size1+size2, PROT_READ|PROT_WRITE);
+    void *mem  = alloc_pages(size1 + size2, PROT_READ | PROT_WRITE);
     void *ptr1 = mem;
 
-    region *region1 = get(ptr1, size1, PROT_READ|PROT_WRITE);
-    EXPECT_EQ(PROT_READ|PROT_WRITE, region1->super.prot);
+    region *region1 = get(ptr1, size1, PROT_READ | PROT_WRITE);
+    EXPECT_EQ(PROT_READ | PROT_WRITE, region1->super.prot);
     put(region1);
 
     ret = mprotect(ptr1, ucs_get_page_size(), PROT_READ);
     ASSERT_EQ(0, ret) << strerror(errno);
 
-    void *ptr2 = (char*)mem+size1 - 1024 ;
-    region *region2 = get(ptr2, size2, PROT_READ|PROT_WRITE);
+    void *ptr2      = (char *)mem + size1 - 1024;
+    region *region2 = get(ptr2, size2, PROT_READ | PROT_WRITE);
 
     /* check permissions and that the region is not merged */
-    EXPECT_EQ(PROT_READ|PROT_WRITE, region2->super.prot);
+    EXPECT_EQ(PROT_READ | PROT_WRITE, region2->super.prot);
     EXPECT_EQ(region2->super.super.start, (uintptr_t)ptr2);
 
     barrier();
     EXPECT_EQ(6u, m_reg_count);
     barrier();
     put(region2);
-    munmap(mem, size1+size2);
+    munmap(mem, size1 + size2);
 }
 
-UCS_MT_TEST_F(test_rcache_1, shared_region, 6) {
+UCS_MT_TEST_F(test_rcache_1, shared_region, 6)
+{
     static const size_t size = 1 * 1024 * 1024;
 
     void *mem = shared_malloc(size);
 
-    void *ptr1 = mem;
+    void *ptr1   = mem;
     size_t size1 = size * 2 / 3;
 
-    void *ptr2 = (char*)mem + size - size1;
+    void *ptr2   = (char *)mem + size - size1;
     size_t size2 = size1;
 
     region *region1 = get(ptr1, size1);
@@ -357,8 +363,7 @@ UCS_MT_TEST_F(test_rcache_1, shared_region, 6) {
 #define UCS_RCACHE_MEM_TYPE_P  std::tr1::get<1>(GetParam())
 #define UCS_RCACHE_MALLOC_P(size, ptr) \
     ptr = mem_buffer::allocate(size, UCS_RCACHE_MEM_TYPE_P);
-#define UCS_RCACHE_FREE_P(ptr) \
-    mem_buffer::release(ptr, UCS_RCACHE_MEM_TYPE_P);
+#define UCS_RCACHE_FREE_P(ptr) mem_buffer::release(ptr, UCS_RCACHE_MEM_TYPE_P);
 #define UCS_RCACHE_ALLOC_PAGES_P(size, prot, ptr) \
     do { \
         if (UCS_RCACHE_MEM_TYPE_P == UCS_MEMORY_TYPE_HOST) { \
@@ -379,26 +384,27 @@ UCS_MT_TEST_F(test_rcache_1, shared_region, 6) {
 
 typedef std::tr1::tuple<int, ucs_memory_type_t> param_tuple_t;
 class test_rcache_2 : public test_rcache_base,
-                      public ucs::test_with_param<param_tuple_t> {
+                      public ucs::test_with_param<param_tuple_t>
+{
 protected:
-
-    virtual void init() {
+    virtual void init()
+    {
         ucs::test_with_param<param_tuple_t>::init();
-        ucs_rcache_params_t params = {
-            sizeof(region),
-            UCS_PGT_ADDR_ALIGN,
-            ucs_get_page_size(),
-            UCS_RCACHE_MEM_EVENT_P,
-            1000,
-            &ops,
-            reinterpret_cast<void*>(this),
-            0
-        };
-        UCS_TEST_CREATE_HANDLE_IF_SUPPORTED(ucs_rcache_t*, m_rcache, ucs_rcache_destroy,
-                                            ucs_rcache_create, &params, "test", ucs_stats_get_root());
+        ucs_rcache_params_t params = {sizeof(region),
+                                      UCS_PGT_ADDR_ALIGN,
+                                      ucs_get_page_size(),
+                                      UCS_RCACHE_MEM_EVENT_P,
+                                      1000,
+                                      &ops,
+                                      reinterpret_cast<void *>(this),
+                                      0};
+        UCS_TEST_CREATE_HANDLE_IF_SUPPORTED(ucs_rcache_t *, m_rcache,
+                                            ucs_rcache_destroy, ucs_rcache_create,
+                                            &params, "test", ucs_stats_get_root());
     }
 
-    virtual void cleanup() {
+    virtual void cleanup()
+    {
         m_rcache.reset();
         EXPECT_EQ(0u, m_reg_count);
         ucs::test_with_param<param_tuple_t>::cleanup();
@@ -451,7 +457,8 @@ out:
     return pa;
 }
 
-UCS_MT_TEST_P(test_rcache_2, basic, 10) {
+UCS_MT_TEST_P(test_rcache_2, basic, 10)
+{
     static const size_t size = 1 * 1024 * 1024;
     void *ptr;
     UCS_RCACHE_MALLOC_P(size, ptr);
@@ -460,7 +467,8 @@ UCS_MT_TEST_P(test_rcache_2, basic, 10) {
     UCS_RCACHE_FREE_P(ptr);
 }
 
-UCS_MT_TEST_P(test_rcache_2, get_unmapped, 6) {
+UCS_MT_TEST_P(test_rcache_2, get_unmapped, 6)
+{
     /*
      *  - allocate, get, put, get again -> should be same id
      *  - release, get again -> should be different id
@@ -498,7 +506,8 @@ UCS_MT_TEST_P(test_rcache_2, get_unmapped, 6) {
 }
 
 UCS_TEST_SKIP_COND_P(test_rcache_2, non_host_get_free_get,
-                     UCS_RCACHE_MEM_TYPE_P == UCS_MEMORY_TYPE_HOST) {
+                     UCS_RCACHE_MEM_TYPE_P == UCS_MEMORY_TYPE_HOST)
+{
     /* All new non-host allocations must lead to a cache miss.
      * So, we must see a different region id.
      */
@@ -518,7 +527,8 @@ UCS_TEST_SKIP_COND_P(test_rcache_2, non_host_get_free_get,
     }
 }
 
-UCS_MT_TEST_P(test_rcache_2, merge, 6) {
+UCS_MT_TEST_P(test_rcache_2, merge, 6)
+{
     /*
      * +---------+-----+---------+
      * | region1 | pad | region2 |
@@ -533,7 +543,7 @@ UCS_MT_TEST_P(test_rcache_2, merge, 6) {
     void *ptr1, *ptr2, *ptr3, *mem;
     size_t size3;
 
-    UCS_RCACHE_ALLOC_PAGES_P(size1 + pad + size2, PROT_READ|PROT_WRITE, mem);
+    UCS_RCACHE_ALLOC_PAGES_P(size1 + pad + size2, PROT_READ | PROT_WRITE, mem);
 
     /* Create region1 */
     ptr1 = (char*)mem;
@@ -566,7 +576,8 @@ UCS_MT_TEST_P(test_rcache_2, merge, 6) {
     UCS_RCACHE_RELEASE_PAGES_P(mem, size1 + pad + size2);
 }
 
-UCS_MT_TEST_P(test_rcache_2, merge_inv, 6) {
+UCS_MT_TEST_P(test_rcache_2, merge_inv, 6)
+{
     /*
      * Merge with another region which causes immediate invalidation of the
      * other region.
@@ -583,7 +594,7 @@ UCS_MT_TEST_P(test_rcache_2, merge_inv, 6) {
     void *ptr1, *ptr2, *mem;
     uint32_t id1;
 
-    UCS_RCACHE_ALLOC_PAGES_P(pad + size2, PROT_READ|PROT_WRITE, mem);
+    UCS_RCACHE_ALLOC_PAGES_P(pad + size2, PROT_READ | PROT_WRITE, mem);
 
     /* Create region1 */
     ptr1 = (char*)mem;
@@ -600,7 +611,8 @@ UCS_MT_TEST_P(test_rcache_2, merge_inv, 6) {
     UCS_RCACHE_RELEASE_PAGES_P(mem, pad + size2);
 }
 
-UCS_MT_TEST_P(test_rcache_2, release_inuse, 6) {
+UCS_MT_TEST_P(test_rcache_2, release_inuse, 6)
+{
     static const size_t size = 1 * 1024 * 1024;
 
     void *ptr1;
@@ -620,7 +632,8 @@ UCS_MT_TEST_P(test_rcache_2, release_inuse, 6) {
     put(region1);
 }
 
-class test_rcache_no_register : public test_rcache_1 {
+class test_rcache_no_register : public test_rcache_1
+{
 protected:
     bool m_fail_reg;
     virtual ucs_status_t mem_reg(region *region) {
@@ -719,7 +732,8 @@ UCS_MT_TEST_F(test_rcache_no_register, merge_invalid_prot_slow, 5)
 }
 
 #ifdef ENABLE_STATS
-class test_rcache_stats : public test_rcache_1 {
+class test_rcache_stats : public test_rcache_1
+{
 protected:
 
     virtual void init() {
@@ -988,16 +1002,10 @@ UCS_TEST_F(test_rcache_pfn, enum_pfn) {
     }
 }
 
-static const int mem_events[] = {
-    UCM_EVENT_VM_UNMAPPED,
-    UCM_EVENT_VM_UNMAPPED | UCM_EVENT_MEM_TYPE_FREE
-};
+static const int mem_events[] = {UCM_EVENT_VM_UNMAPPED,
+                                 UCM_EVENT_VM_UNMAPPED | UCM_EVENT_MEM_TYPE_FREE};
 
 INSTANTIATE_TEST_CASE_P(
-        mem_type_and_event,
-        test_rcache_2,
-        ::testing::Combine(
-            ::testing::ValuesIn(mem_events),
-            ::testing::ValuesIn(mem_buffer::supported_mem_types())
-        )
-);
+    mem_type_and_event, test_rcache_2,
+    ::testing::Combine(::testing::ValuesIn(mem_events),
+                       ::testing::ValuesIn(mem_buffer::supported_mem_types())));

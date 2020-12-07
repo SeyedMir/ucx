@@ -12,12 +12,12 @@
  * memory invalidation (if it's unmapped), merging of regions, protection flags.
  * This data structure is thread safe.
  */
-#include <ucs/datastruct/pgtable.h>
-#include <ucs/datastruct/list.h>
-#include <ucs/datastruct/queue_types.h>
-#include <ucs/datastruct/mpool.h>
-#include <ucs/stats/stats_fwd.h>
 #include <ucm/mem_attr/mem_attr.h>
+#include <ucs/datastruct/list.h>
+#include <ucs/datastruct/mpool.h>
+#include <ucs/datastruct/pgtable.h>
+#include <ucs/datastruct/queue_types.h>
+#include <ucs/stats/stats_fwd.h>
 #include <sys/mman.h>
 
 
@@ -141,7 +141,7 @@ struct ucs_rcache_region {
                                           allocated, if 1 page requested - used
                                           in-place priv value. */
     };
-    ucm_mem_attr_h         mem_attr;
+    ucm_mem_attr_h mem_attr;
 };
 
 

@@ -530,10 +530,9 @@ static inline int ucs_rcache_region_test(ucs_rcache_region_t *region, int prot)
 }
 
 /* Lock must be held */
-static ucs_status_t
-ucs_rcache_check_overlap(ucs_rcache_t *rcache, ucs_pgt_addr_t *start,
-                         ucs_pgt_addr_t *end, ucm_mem_attr_h mem_attr,
-                         int *prot, int *merged, ucs_rcache_region_t **region_p)
+static ucs_status_t ucs_rcache_check_overlap(
+    ucs_rcache_t *rcache, ucs_pgt_addr_t *start, ucs_pgt_addr_t *end,
+    ucm_mem_attr_h mem_attr, int *prot, int *merged, ucs_rcache_region_t **region_p)
 {
     ucs_rcache_region_t *region, *tmp;
     ucs_list_link_t region_list;
@@ -552,7 +551,6 @@ ucs_rcache_check_overlap(ucs_rcache_t *rcache, ucs_pgt_addr_t *start,
     /* TODO check if any of the regions is locked */
 
     ucs_list_for_each_safe(region, tmp, &region_list, list) {
-
         if (ucm_mem_attr_cmp(region->mem_attr, mem_attr)) {
             ucs_rcache_region_trace(rcache, region,
                                     "do not merge VA range 0x%lx..0x%lx with "
@@ -664,10 +662,10 @@ static ucs_status_t ucs_rcache_fill_pfn(ucs_rcache_region_t *region)
     return status;
 }
 
-static ucs_status_t
-ucs_rcache_create_region(ucs_rcache_t *rcache, void *address, size_t length,
-                         ucm_mem_attr_h mem_attr, int prot, void *arg,
-                         ucs_rcache_region_t **region_p)
+static ucs_status_t ucs_rcache_create_region(ucs_rcache_t *rcache, void *address,
+                                             size_t length, ucm_mem_attr_h mem_attr,
+                                             int prot, void *arg,
+                                             ucs_rcache_region_t **region_p)
 {
     ucs_rcache_region_t *region;
     ucs_pgt_addr_t start, end;
@@ -679,7 +677,8 @@ ucs_rcache_create_region(ucs_rcache_t *rcache, void *address, size_t length,
 
     if (mem_attr == NULL) {
         status = ucm_mem_attr_get(address, length, &mem_attr);
-        if (status != UCS_OK) return status;
+        if (status != UCS_OK)
+            return status;
     }
 
     pthread_rwlock_wrlock(&rcache->pgt_lock);
@@ -829,11 +828,10 @@ ucs_status_t ucs_rcache_get(ucs_rcache_t *rcache, void *address, size_t length,
                     return status;
                 }
             }
-            if (((start + length) <= region->super.end)  &&
-                ucs_rcache_region_test(region, prot)     &&
+            if (((start + length) <= region->super.end) &&
+                ucs_rcache_region_test(region, prot) &&
                 (region_mem_type == UCS_MEMORY_TYPE_HOST ||
-                 !ucm_mem_attr_cmp(region->mem_attr, mem_attr)))
-            {
+                 !ucm_mem_attr_cmp(region->mem_attr, mem_attr))) {
                 ucs_rcache_region_hold(rcache, region);
                 ucs_rcache_region_validate_pfn(rcache, region);
                 *region_p = region;
