@@ -47,6 +47,7 @@ ucs_global_opts_t ucs_global_opts = {
     .stats_filter          = { NULL, 0 },
     .stats_format          = UCS_STATS_FULL,
     .rcache_check_pfn      = 0,
+    .rcache_check_mem_attr = 0,
     .module_dir            = UCX_MODULE_DIR, /* defined in Makefile.am */
     .module_log_level      = UCS_LOG_LEVEL_TRACE,
     .arch                  = UCS_ARCH_GLOBAL_OPTS_INITALIZER
@@ -226,6 +227,10 @@ static ucs_config_field_t ucs_global_opts_table[] = {
    "memory region were not changed since the time the region was registered.\n"
    "Number of pages to check, 0 - disable checking.",
    ucs_offsetof(ucs_global_opts_t, rcache_check_pfn), UCS_CONFIG_TYPE_UINT},
+
+  {"RCACHE_CHECK_MEMATTR", "n",
+   "Registration cache to use memory attributes for entry validation.",
+   ucs_offsetof(ucs_global_opts_t, rcache_check_mem_attr), UCS_CONFIG_TYPE_BOOL},
 
   {"MODULE_DIR", UCX_MODULE_DIR,
    "Directory to search for loadable modules",

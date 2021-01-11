@@ -313,7 +313,9 @@ static void ucs_mem_region_destroy_internal(ucs_rcache_t *rcache,
         ucs_free(ucs_rcache_region_pfn_ptr(region));
     }
 
-    ucm_mem_attr_destroy(region->mem_attr);
+    if (ucs_global_opts.rcache_check_mem_attr) {
+        ucm_mem_attr_destroy(region->mem_attr);
+    }
     ucs_free(region);
 }
 
@@ -541,8 +543,6 @@ static ucs_status_t ucs_rcache_check_overlap(
     ucs_trace_func("rcache=%s, *start=0x%lx, *end=0x%lx", rcache->name, *start,
                    *end);
 
-    ucs_assert(mem_attr != NULL);
-
     ucs_rcache_check_inv_queue(rcache, 0);
     ucs_rcache_check_gc_list(rcache);
 
@@ -551,7 +551,8 @@ static ucs_status_t ucs_rcache_check_overlap(
     /* TODO check if any of the regions is locked */
 
     ucs_list_for_each_safe(region, tmp, &region_list, list) {
-        if (ucm_mem_attr_cmp(region->mem_attr, mem_attr)) {
+        if (ucs_global_opts.rcache_check_mem_attr &&
+            ucm_mem_attr_cmp(region->mem_attr, mem_attr)) {
             ucs_rcache_region_trace(rcache, region,
                                     "do not merge VA range 0x%lx..0x%lx with "
                                     "overlapping region. Memory attributes "
@@ -662,20 +663,20 @@ static ucs_status_t ucs_rcache_fill_pfn(ucs_rcache_region_t *region)
     return status;
 }
 
-static ucs_status_t ucs_rcache_create_region(ucs_rcache_t *rcache, void *address,
-                                             size_t length, ucm_mem_attr_h mem_attr,
-                                             int prot, void *arg,
-                                             ucs_rcache_region_t **region_p)
+static ucs_status_t
+ucs_rcache_create_region(ucs_rcache_t *rcache, void *address, size_t length,
+                         int prot, void *arg, ucs_rcache_region_t **region_p)
 {
     ucs_rcache_region_t *region;
     ucs_pgt_addr_t start, end;
+    ucm_mem_attr_h mem_attr;
     ucs_status_t status;
     int error, merged;
 
     ucs_trace_func("rcache=%s, address=%p, length=%zu", rcache->name, address,
                    length);
 
-    if (mem_attr == NULL) {
+    if (ucs_global_opts.rcache_check_mem_attr) {
         status = ucm_mem_attr_get(address, length, &mem_attr);
         if (status != UCS_OK)
             return status;
@@ -702,7 +703,9 @@ retry:
         ucs_rcache_region_validate_pfn(rcache, region);
         status = region->status;
         UCS_STATS_UPDATE_COUNTER(rcache->stats, UCS_RCACHE_HITS_SLOW, 1);
-        ucm_mem_attr_destroy(mem_attr);
+        if (ucs_global_opts.rcache_check_mem_attr) {
+            ucm_mem_attr_destroy(mem_attr);
+        }
         goto out_set_region;
     } else if (status != UCS_OK) {
         /* Could not create a region because there are overlapping regions which
@@ -741,7 +744,7 @@ retry:
     region->prot     = prot;
     region->flags    = UCS_RCACHE_REGION_FLAG_PGTABLE;
     region->refcount = 1;
-    region->mem_attr = mem_attr;
+    if (ucs_global_opts.rcache_check_mem_attr) region->mem_attr = mem_attr;
     region->status = status =
         UCS_PROFILE_NAMED_CALL("mem_reg", rcache->params.ops->mem_reg,
                                rcache->params.context, rcache, arg, region,
@@ -790,7 +793,7 @@ out_unlock:
 out_free_region:
     ucs_free(region);
 out_destroy_mem_attr:
-    ucm_mem_attr_destroy(mem_attr);
+    if (ucs_global_opts.rcache_check_mem_attr) ucm_mem_attr_destroy(mem_attr);
     goto out_unlock;
 }
 
@@ -806,8 +809,7 @@ ucs_status_t ucs_rcache_get(ucs_rcache_t *rcache, void *address, size_t length,
     ucs_pgt_addr_t start = (uintptr_t)address;
     ucs_pgt_region_t *pgt_region;
     ucs_rcache_region_t *region;
-    ucs_memory_type_t region_mem_type;
-    ucm_mem_attr_h mem_attr = NULL;
+    int mem_attr_ok = 1;
     ucs_status_t status;
 
     ucs_trace_func("rcache=%s, address=%p, length=%zu", rcache->name, address,
@@ -820,24 +822,24 @@ ucs_status_t ucs_rcache_get(ucs_rcache_t *rcache, void *address, size_t length,
                                       start);
         if (ucs_likely(pgt_region != NULL)) {
             region = ucs_derived_of(pgt_region, ucs_rcache_region_t);
-            region_mem_type = ucm_mem_attr_get_type(region->mem_attr);
-            if (region_mem_type != UCS_MEMORY_TYPE_HOST) {
+            if (ucs_global_opts.rcache_check_mem_attr &&
+                ucm_mem_attr_get_type(region->mem_attr) != UCS_MEMORY_TYPE_HOST) {
+                ucm_mem_attr_h mem_attr;
                 status = ucm_mem_attr_get(address, length, &mem_attr);
                 if (status != UCS_OK) {
                     pthread_rwlock_unlock(&rcache->pgt_lock);
                     return status;
                 }
+                mem_attr_ok = !ucm_mem_attr_cmp(region->mem_attr, mem_attr);
+                ucm_mem_attr_destroy(mem_attr);
             }
             if (((start + length) <= region->super.end) &&
-                ucs_rcache_region_test(region, prot) &&
-                (region_mem_type == UCS_MEMORY_TYPE_HOST ||
-                 !ucm_mem_attr_cmp(region->mem_attr, mem_attr))) {
+                ucs_rcache_region_test(region, prot) && mem_attr_ok) {
                 ucs_rcache_region_hold(rcache, region);
                 ucs_rcache_region_validate_pfn(rcache, region);
                 *region_p = region;
                 UCS_STATS_UPDATE_COUNTER(rcache->stats, UCS_RCACHE_HITS_FAST, 1);
                 pthread_rwlock_unlock(&rcache->pgt_lock);
-                ucm_mem_attr_destroy(mem_attr);
                 return UCS_OK;
             }
         }
@@ -850,7 +852,7 @@ ucs_status_t ucs_rcache_get(ucs_rcache_t *rcache, void *address, size_t length,
      * - found unregistered region
      */
     return UCS_PROFILE_CALL(ucs_rcache_create_region, rcache, address, length,
-                            mem_attr, prot, arg, region_p);
+                            prot, arg, region_p);
 }
 
 void ucs_rcache_region_put(ucs_rcache_t *rcache, ucs_rcache_region_t *region)

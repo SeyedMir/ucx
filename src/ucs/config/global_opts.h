@@ -118,6 +118,9 @@ typedef struct {
     /* registration cache checks if physical pages are not moved */
     unsigned                   rcache_check_pfn;
 
+    /* registration cache uses memory attributes to validate entries */
+    int                        rcache_check_mem_attr;
+
     /* directory for loadable modules */
     char                       *module_dir;
 

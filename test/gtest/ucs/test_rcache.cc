@@ -77,8 +77,14 @@ protected:
 
     virtual ucs_status_t mem_reg(region *region)
     {
-        int mem_prot = ucs_get_mem_prot(region->super.super.start, region->super.super.end);
-        if (ucm_mem_attr_get_type(region->super.mem_attr) == UCS_MEMORY_TYPE_HOST &&
+        int mem_prot = ucs_get_mem_prot(region->super.super.start,
+                                        region->super.super.end);
+        size_t region_length = region->super.super.end - region->super.super.start;
+        ucm_mem_attr_h region_mem_attr;
+        ucs_status_t status = ucm_mem_attr_get((void*)region->super.super.start,
+                                               region_length, &region_mem_attr);
+        if (status != UCS_OK) return status;
+        if (ucm_mem_attr_get_type(region_mem_attr) == UCS_MEMORY_TYPE_HOST &&
             !ucs_test_all_flags(mem_prot, region->super.prot)) {
             ucs_debug("protection error mem_prot " UCS_RCACHE_PROT_FMT " wanted " UCS_RCACHE_PROT_FMT,
                       UCS_RCACHE_PROT_ARG(mem_prot),
