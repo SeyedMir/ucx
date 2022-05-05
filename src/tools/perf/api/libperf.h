@@ -70,6 +70,7 @@ typedef enum {
 typedef enum {
     UCX_PERF_WAIT_MODE_POLL,         /* Repeatedly call progress */
     UCX_PERF_WAIT_MODE_SLEEP,        /* Go to sleep */
+    UCX_PERF_WAIT_MODE_EFD,          /* Repeatedly poll on worker efd */
     UCX_PERF_WAIT_MODE_SPIN,         /* Spin without calling progress */
     UCX_PERF_WAIT_MODE_LAST
 } ucx_perf_wait_mode_t;

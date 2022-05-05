@@ -889,7 +889,8 @@ static ucs_status_t ucp_perf_test_fill_params(ucx_perf_params_t *params,
     }
 
     if ((params->flags & UCX_PERF_TEST_FLAG_WAKEUP) ||
-        (params->wait_mode == UCX_PERF_WAIT_MODE_SLEEP)) {
+        (params->wait_mode == UCX_PERF_WAIT_MODE_SLEEP) ||
+        (params->wait_mode == UCX_PERF_WAIT_MODE_EFD)) {
         ucp_params->features |= UCP_FEATURE_WAKEUP;
     }
 
@@ -1612,6 +1613,18 @@ static ucs_status_t ucp_perf_setup(ucx_perf_context_t *perf)
             ucp_perf_test_destroy_workers(perf, i);
             goto err_free_tctx;
         }
+
+        if (perf->params.wait_mode == UCX_PERF_WAIT_MODE_EFD) {
+            status = ucp_worker_get_efd(perf->ucp.tctx[i].perf.ucp.worker,
+                                        &perf->ucp.tctx[i].perf.ucp.worker_efd);
+            if (status != UCS_OK) {
+                ucs_error("ucp_worker_get_efd failed");
+                ucp_perf_test_destroy_workers(perf, i + 1);
+                goto err_free_tctx;
+            }
+            perf->ucp.tctx[i].perf.ucp.pfd.fd = perf->ucp.tctx[i].perf.ucp.worker_efd;
+            perf->ucp.tctx[i].perf.ucp.pfd.events = POLLIN;
+        }
     }
 
     if (perf->params.command == UCX_PERF_CMD_AM) {
@@ -1742,6 +1755,8 @@ ucs_status_t ucx_perf_run(const ucx_perf_params_t *params,
     if (params->thread_count == 1) {
         if (params->api == UCX_PERF_API_UCP) {
             perf->ucp.worker      = perf->ucp.tctx[0].perf.ucp.worker;
+            perf->ucp.worker_efd  = perf->ucp.tctx[0].perf.ucp.worker_efd;
+            perf->ucp.pfd         = perf->ucp.tctx[0].perf.ucp.pfd;
             perf->ucp.ep          = perf->ucp.tctx[0].perf.ucp.ep;
             perf->ucp.remote_addr = perf->ucp.tctx[0].perf.ucp.remote_addr;
             perf->ucp.rkey        = perf->ucp.tctx[0].perf.ucp.rkey;

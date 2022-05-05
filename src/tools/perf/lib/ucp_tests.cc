@@ -224,9 +224,30 @@ public:
         }
     }
 
+    void UCS_F_ALWAYS_INLINE efd_progress() {
+        int ret;
+        if (ucp_worker_progress(m_perf.ucp.worker) == 0) {
+            ucs_status_t status = ucp_worker_arm(m_perf.ucp.worker);
+            if (status == UCS_ERR_BUSY) { /* new events arrived already */
+                return;
+            }
+            ucs_assert_always(status == UCS_OK);
+
+            while (1) {
+                ret = poll(&m_perf.ucp.pfd, 1, 0);
+                if (ret > 0) return;
+                if (ret == -1 && errno != EINTR) {
+                    ucs_fatal("failed to poll on worker fd");
+                }
+            }
+        }
+    }
+
     void UCS_F_ALWAYS_INLINE progress() {
         if (ucs_unlikely(UCX_PERF_WAIT_MODE_SLEEP == m_perf.params.wait_mode)) {
             blocking_progress();
+        } else if (UCX_PERF_WAIT_MODE_EFD == m_perf.params.wait_mode) {
+            efd_progress();
         } else {
             ucp_worker_progress(m_perf.ucp.worker);
         }

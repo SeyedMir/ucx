@@ -134,6 +134,7 @@ static void usage(const struct perftest_context *ctx, const char *program)
     printf("     -e             create endpoints with error handling support\n");
     printf("     -E <mode>      wait mode for tests\n");
     printf("                        poll       : repeatedly call worker_progress\n");
+    printf("                        poll_efd   : repeatedly poll on worker efd\n");
     printf("                        sleep      : go to sleep after posting requests\n");
     printf("     -H <size>      active message header size (%zu), not included in message size\n",
                                 ctx->params.super.ucp.am_hdr_size);
@@ -311,6 +312,9 @@ ucs_status_t parse_test_params(perftest_params_t *params, char opt,
             return UCS_OK;
         } else if (!strcmp(opt_arg, "sleep")) {
             params->super.wait_mode = UCX_PERF_WAIT_MODE_SLEEP;
+            return UCS_OK;
+        } else if (!strcmp(opt_arg, "poll_efd")) {
+            params->super.wait_mode = UCX_PERF_WAIT_MODE_EFD;
             return UCS_OK;
         } else {
             ucs_error("Invalid option argument for -E");

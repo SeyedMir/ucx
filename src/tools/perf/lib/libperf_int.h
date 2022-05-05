@@ -18,6 +18,7 @@ BEGIN_C_DECLS
 #include <ucs/async/async.h>
 #include <ucs/time/time.h>
 #include <ucs/sys/math.h>
+#include <poll.h>
 
 
 #if _OPENMP
@@ -104,6 +105,8 @@ struct ucx_perf_context {
             ucp_context_h              context;
             ucx_perf_thread_context_t* tctx;
             ucp_worker_h               worker;
+            int                        worker_efd;
+            struct pollfd              pfd;
             ucp_ep_h                   ep;
             ucp_rkey_h                 rkey;
             unsigned long              remote_addr;
