@@ -281,6 +281,17 @@ void ucx_perf_calc_result(ucx_perf_context_t *perf, ucx_perf_result_t *result)
 
 }
 
+static int ucx_perf_message_size_has_zero(const ucx_perf_params_t *params)
+{
+    size_t it;
+
+    for (it = 0; it < params->msg_size_cnt; ++it) {
+        if (params->msg_size_list[it] == 0) return 1;
+    }
+
+    return 0;
+}
+
 static ucs_status_t ucx_perf_test_check_params(ucx_perf_params_t *params)
 {
     size_t it;
@@ -295,7 +306,7 @@ static ucs_status_t ucx_perf_test_check_params(ucx_perf_params_t *params)
           (params->command != UCX_PERF_CMD_TAG) &&
           (params->command != UCX_PERF_CMD_TAG_SYNC) &&
           (params->command != UCX_PERF_CMD_STREAM))) &&
-        ucx_perf_get_message_size(params) < 1) {
+        ucx_perf_message_size_has_zero(params)) {
         if (params->flags & UCX_PERF_TEST_FLAG_VERBOSE) {
             ucs_error("Message size too small, need to be at least 1");
         }
@@ -1547,7 +1558,7 @@ static ucs_status_t ucp_perf_setup(ucx_perf_context_t *perf)
     ucp_config_t *config;
     ucs_status_t status;
     unsigned i, thread_count;
-    size_t message_size;
+    size_t buf_offset = 0;
 
     ucp_params.field_mask   = UCP_PARAM_FIELD_FEATURES |
                               UCP_PARAM_FIELD_REQUEST_SIZE |
@@ -1580,7 +1591,6 @@ static ucs_status_t ucp_perf_setup(ucx_perf_context_t *perf)
     }
 
     thread_count = perf->params.thread_count;
-    message_size = ucx_perf_get_message_size(&perf->params);
 
     status = ucp_perf_test_alloc_mem(perf);
     if (status != UCS_OK) {
@@ -1598,13 +1608,18 @@ static ucs_status_t ucp_perf_setup(ucx_perf_context_t *perf)
     worker_params.thread_mode = perf->params.thread_mode;
 
     for (i = 0; i < thread_count; i++) {
-        perf->ucp.tctx[i].tid              = i;
-        perf->ucp.tctx[i].perf             = *perf;
+        perf->ucp.tctx[i].tid                          = i;
+        perf->ucp.tctx[i].perf                         = *perf;
+        perf->ucp.tctx[i].perf.params.max_iter         = perf->params.max_iter_list[i];
+        perf->ucp.tctx[i].perf.params.msg_size_list    = &perf->params.msg_size_list[i];
+        perf->ucp.tctx[i].perf.params.msg_size_cnt     = 1;
         /* Doctor the src and dst buffers to make them thread specific */
         perf->ucp.tctx[i].perf.send_buffer =
-                        UCS_PTR_BYTE_OFFSET(perf->send_buffer, i * message_size);
+                        UCS_PTR_BYTE_OFFSET(perf->send_buffer, buf_offset);
         perf->ucp.tctx[i].perf.recv_buffer =
-                        UCS_PTR_BYTE_OFFSET(perf->recv_buffer, i * message_size);
+                        UCS_PTR_BYTE_OFFSET(perf->recv_buffer, buf_offset);
+        buf_offset += perf->params.msg_size_list[i];
+
 
         status = ucp_worker_create(perf->ucp.context, &worker_params,
                                    &perf->ucp.tctx[i].perf.ucp.worker);
@@ -1774,16 +1789,9 @@ out:
 
 size_t ucx_perf_get_message_size(const ucx_perf_params_t *params)
 {
-    size_t length, it;
-
     ucs_assert(params->msg_size_list != NULL);
 
-    length = 0;
-    for (it = 0; it < params->msg_size_cnt; ++it) {
-        length += params->msg_size_list[it];
-    }
-
-    return length;
+    return params->msg_size_list[0];
 }
 
 unsigned rte_peer_index(unsigned group_size, unsigned group_index)

@@ -173,7 +173,7 @@ ucs_status_t init_test_params(perftest_params_t *params)
     params->super.warmup_iter       = 10000;
     params->super.warmup_time       = 100e-3;
     params->super.alignment         = ucs_get_page_size();
-    params->super.max_iter          = 1000000l;
+    params->super.max_iter_cnt      = 1;
     params->super.max_time          = 0.0;
     params->super.report_interval   = 1.0;
     params->super.percentile_rank   = 50.0;
@@ -197,7 +197,15 @@ ucs_status_t init_test_params(perftest_params_t *params)
         return UCS_ERR_NO_MEMORY;
     }
 
+    params->super.max_iter_list = calloc(params->super.max_iter_cnt,
+                                         sizeof(*params->super.max_iter_list));
+    if (params->super.max_iter_list == NULL) {
+        return UCS_ERR_NO_MEMORY;
+    }
+
     params->super.msg_size_list[0] = 8;
+    params->super.max_iter_list[0] = 1000000l;
+    params->super.max_iter         = params->super.max_iter_list[0];
     params->test_id                = TEST_ID_UNDEFINED;
 
     return UCS_OK;
@@ -413,6 +421,10 @@ static ucs_status_t setup_sock_rte_p2p(struct perftest_context *ctx)
          * during the initialization of the default testing parameters */
         free(ctx->params.super.msg_size_list);
         ctx->params.super.msg_size_list = NULL;
+        /* release the memory for the list of the message sizes allocated
+         * during the initialization of the default testing parameters */
+        free(ctx->params.super.max_iter_list);
+        ctx->params.super.max_iter_list = NULL;
 
         ret = safe_recv(connfd, &ctx->params, sizeof(ctx->params), NULL, NULL);
         if (ret) {
@@ -439,6 +451,25 @@ static ucs_status_t setup_sock_rte_p2p(struct perftest_context *ctx)
             }
         }
 
+        if (ctx->params.super.max_iter_cnt != 0) {
+            ctx->params.super.max_iter_list =
+                    calloc(ctx->params.super.max_iter_cnt,
+                           sizeof(*ctx->params.super.max_iter_list));
+            if (NULL == ctx->params.super.max_iter_list) {
+                status = UCS_ERR_NO_MEMORY;
+                goto err_close_connfd;
+            }
+
+            ret = safe_recv(connfd, ctx->params.super.max_iter_list,
+                            sizeof(*ctx->params.super.max_iter_list) *
+                            ctx->params.super.max_iter_cnt,
+                            NULL, NULL);
+            if (ret) {
+                status = UCS_ERR_IO_ERROR;
+                goto err_close_connfd;
+            }
+        }
+
         ctx->sock_rte_group.sendfd    = connfd;
         ctx->sock_rte_group.recvfd    = connfd;
         ctx->sock_rte_group.peer      = 1;
@@ -449,6 +480,13 @@ static ucs_status_t setup_sock_rte_p2p(struct perftest_context *ctx)
             safe_send(sockfd, ctx->params.super.msg_size_list,
                       sizeof(*ctx->params.super.msg_size_list) *
                       ctx->params.super.msg_size_cnt,
+                      NULL, NULL);
+        }
+
+        if (ctx->params.super.max_iter_cnt != 0) {
+            safe_send(sockfd, ctx->params.super.max_iter_list,
+                      sizeof(*ctx->params.super.max_iter_list) *
+                      ctx->params.super.max_iter_cnt,
                       NULL, NULL);
         }
 

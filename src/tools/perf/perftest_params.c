@@ -66,7 +66,7 @@ static void usage(const struct perftest_context *ctx, const char *program)
     printf("     -m <send mem type>[,<recv mem type>]\n");
     printf("                    memory type of message for sender and receiver (host)\n");
     print_memory_type_usage();
-    printf("     -n <iters>     number of iterations to run (%"PRIu64")\n", ctx->params.super.max_iter);
+    printf("     -n <iters>     number of iterations to run (%"PRIu64")\n", ctx->params.super.max_iter_list[0]);
     printf("     -w <iters>     number of warm-up iterations (%"PRIu64")\n",
                                 ctx->params.super.warmup_iter);
     printf("     -c <cpulist>   set affinity to this CPU list (separated by comma) (off)\n");
@@ -186,6 +186,51 @@ static ucs_status_t parse_mem_type_params(const char *opt_arg,
     } else {
         return parse_mem_type(token, recv_mem_type);
     }
+}
+
+static ucs_status_t parse_max_iter_params(const char *opt_arg,
+                                          ucx_perf_params_t *params)
+{
+    const char delim = ',';
+    size_t token_num, token_it;
+    ucx_perf_counter_t *max_iter_list;
+    char *optarg_ptr, *optarg_ptr2;
+
+    optarg_ptr = (char *)opt_arg;
+    token_num  = 0;
+    /* count the number of given max iterations */
+    while ((optarg_ptr = strchr(optarg_ptr, delim)) != NULL) {
+        ++optarg_ptr;
+        ++token_num;
+    }
+    ++token_num;
+
+    max_iter_list = realloc(params->max_iter_list,
+                            sizeof(*params->max_iter_list) * token_num);
+    if (NULL == max_iter_list) {
+        return UCS_ERR_NO_MEMORY;
+    }
+
+    params->max_iter_list = max_iter_list;
+
+    optarg_ptr = (char *)opt_arg;
+    errno = 0;
+    for (token_it = 0; token_it < token_num; ++token_it) {
+        params->max_iter_list[token_it] = strtoul(optarg_ptr, &optarg_ptr2, 10);
+        if (((ERANGE == errno) && (ULONG_MAX == params->max_iter_list[token_it])) ||
+            ((errno != 0) && (params->max_iter_list[token_it] == 0)) ||
+            (optarg_ptr == optarg_ptr2)) {
+            free(params->max_iter_list);
+            params->max_iter_list = NULL; /* prevent double free */
+            ucs_error("Invalid option substring argument at position %lu", token_it);
+            return UCS_ERR_INVALID_PARAM;
+        }
+        optarg_ptr = optarg_ptr2 + 1;
+    }
+
+    params->max_iter_cnt   = token_num;
+    params->max_iter       = params->max_iter_list[0];
+    return UCS_OK;
 }
 
 static ucs_status_t parse_message_sizes_params(const char *opt_arg,
@@ -324,8 +369,7 @@ ucs_status_t parse_test_params(perftest_params_t *params, char opt,
         params->super.flags |= UCX_PERF_TEST_FLAG_LOOPBACK;
         return UCS_OK;
     case 'n':
-        params->super.max_iter = atol(opt_arg);
-        return UCS_OK;
+        return parse_max_iter_params(opt_arg, &params->super);
     case 's':
         return parse_message_sizes_params(opt_arg, &params->super);
     case 'H':
@@ -447,18 +491,29 @@ ucs_status_t adjust_test_params(perftest_params_t *params,
 ucs_status_t clone_params(perftest_params_t *dest,
                           const perftest_params_t *src)
 {
-    size_t msg_size_list_size;
+    size_t msg_size_list_size, max_iter_list_size;
 
     *dest                     = *src;
+
     msg_size_list_size        = dest->super.msg_size_cnt *
                                 sizeof(*dest->super.msg_size_list);
     dest->super.msg_size_list = malloc(msg_size_list_size);
     if (dest->super.msg_size_list == NULL) {
         return ((msg_size_list_size != 0) ? UCS_ERR_NO_MEMORY : UCS_OK);
     }
-
     memcpy(dest->super.msg_size_list, src->super.msg_size_list,
            msg_size_list_size);
+
+    max_iter_list_size        = dest->super.max_iter_cnt *
+                                sizeof(*dest->super.max_iter_list);
+    dest->super.max_iter_list = malloc(max_iter_list_size);
+    if (dest->super.max_iter_list == NULL) {
+        return ((max_iter_list_size != 0) ? UCS_ERR_NO_MEMORY : UCS_OK);
+    }
+
+    memcpy(dest->super.max_iter_list, src->super.max_iter_list,
+           max_iter_list_size);
+
     return UCS_OK;
 }
 
@@ -486,6 +541,17 @@ ucs_status_t check_params(const perftest_params_t *params)
             ucs_warn("-x '%s' ignored for UCP test; see NOTES section in help "
                      "message",
                      params->super.uct.tl_name);
+        }
+        // assume one (separate) msg size and max iterations per thread
+        if (params->super.thread_count != params->super.msg_size_cnt) {
+            ucs_error("Must specify one message size per thread (tc=%u, msc=%lu)",
+                      params->super.thread_count, params->super.msg_size_cnt);
+            return UCS_ERR_INVALID_PARAM;
+        }
+        if (params->super.thread_count != params->super.max_iter_cnt) {
+            ucs_error("Must specify one max iterations per thread (tc=%u, mic=%lu)",
+                      params->super.thread_count, params->super.max_iter_cnt);
+            return UCS_ERR_INVALID_PARAM;
         }
         return UCS_OK;
     default:

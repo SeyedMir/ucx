@@ -88,6 +88,20 @@ static void ucp_perf_mem_free(const ucx_perf_context_t *perf, ucp_mem_h memh)
     }
 }
 
+static size_t ucx_perf_get_total_message_size(const ucx_perf_params_t *params)
+{
+   size_t length, it;
+
+   ucs_assert(params->msg_size_list != NULL);
+
+   length = 0;
+   for (it = 0; it < params->msg_size_cnt; ++it) {
+       length += params->msg_size_list[it];
+   }
+
+   return length;
+}
+
 ucs_status_t ucp_perf_test_alloc_mem(ucx_perf_context_t *perf)
 {
     ucx_perf_params_t *params = &perf->params;
@@ -97,11 +111,11 @@ ucs_status_t ucp_perf_test_alloc_mem(ucx_perf_context_t *perf)
     if (params->iov_stride) {
         buffer_size = params->msg_size_cnt * params->iov_stride;
     } else {
-        buffer_size = ucx_perf_get_message_size(params);
+        buffer_size = ucx_perf_get_total_message_size(params);
     }
 
     /* Allocate send buffer memory */
-    status = ucp_perf_mem_alloc(perf, buffer_size * params->thread_count,
+    status = ucp_perf_mem_alloc(perf, buffer_size,
                                 params->send_mem_type, &perf->send_buffer,
                                 &perf->ucp.send_memh);
     if (status != UCS_OK) {
@@ -216,7 +230,7 @@ ucs_status_t uct_perf_test_alloc_mem(ucx_perf_context_t *perf)
     if ((UCT_PERF_DATA_LAYOUT_ZCOPY == params->uct.data_layout) && params->iov_stride) {
         buffer_size = params->msg_size_cnt * params->iov_stride;
     } else {
-        buffer_size = ucx_perf_get_message_size(params);
+        buffer_size = ucx_perf_get_total_message_size(params);
     }
 
     /* TODO use params->alignment  */
@@ -226,8 +240,7 @@ ucs_status_t uct_perf_test_alloc_mem(ucx_perf_context_t *perf)
     flags |= UCT_MD_MEM_ACCESS_ALL;
 
     /* Allocate send buffer memory */
-    status = perf->send_allocator->uct_alloc(perf,
-                                             buffer_size * params->thread_count,
+    status = perf->send_allocator->uct_alloc(perf, buffer_size,
                                              flags, &perf->uct.send_mem);
 
     if (status != UCS_OK) {

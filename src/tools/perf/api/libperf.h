@@ -196,6 +196,8 @@ typedef struct ucx_perf_params {
     ucx_perf_counter_t     warmup_iter;     /* Number of warm-up iterations */
     double                 warmup_time;     /* Approximately how long to warm-up */
     ucx_perf_counter_t     max_iter;        /* Iterations limit, 0 - unlimited */
+    ucx_perf_counter_t     *max_iter_list;  /* Iterations limit list (one per thread) */
+    size_t                 max_iter_cnt;
     double                 max_time;        /* Time limit (seconds), 0 - unlimited */
     double                 report_interval; /* Interval at which to call the report callback */
     double                 percentile_rank; /* The percentile rank of the percentile reported

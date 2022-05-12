@@ -101,7 +101,10 @@ static void ucx_perf_thread_report_aggregated_results(ucx_perf_context_t *perf)
 
     agg_result.latency.total_average = lat_sum_total_avegare / thread_count;
 
-    rte_call(perf, report, &agg_result, perf->params.report_arg, "", 1, 1);
+    //rte_call(perf, report, &agg_result, perf->params.report_arg, "", 1, 1);
+    for (i = 0; i < thread_count; i++) {
+        rte_call(perf, report, &(tctx[i].result), perf->params.report_arg, "", 1, 0);
+    }
 }
 
 ucs_status_t ucx_perf_thread_spawn(ucx_perf_context_t *perf,

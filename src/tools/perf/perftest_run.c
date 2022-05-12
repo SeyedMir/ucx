@@ -296,7 +296,9 @@ static ucs_status_t run_test_recurs(struct perftest_context *ctx,
         }
 
         free(params.super.msg_size_list);
+        free(params.super.max_iter_list);
         params.super.msg_size_list = NULL;
+        params.super.max_iter_list = NULL;
     } while (status == UCS_OK);
 
     if (status == UCS_ERR_NO_ELEM) {
