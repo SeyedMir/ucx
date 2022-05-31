@@ -21,8 +21,9 @@
 #if _OPENMP
 #   include <omp.h>
 
+static volatile int t1_warmup_end = 0;
 
-static ucs_status_t ucx_perf_thread_run_test(void* arg)
+static ucs_status_t ucx_perf_thread_run_test(void* arg, int ti)
 {
     ucx_perf_thread_context_t* tctx = (ucx_perf_thread_context_t*) arg; /* a single thread context */
     ucx_perf_result_t* result       = &tctx->result;
@@ -43,19 +44,26 @@ static ucs_status_t ucx_perf_thread_run_test(void* arg)
         }
     }
 
+    /* t0 waits until t1 is done warmup */
+    while (ti == 0 && !t1_warmup_end);
+
     status = ucx_perf_do_warmup(perf, params);
     if (UCS_OK != status) {
         goto out;
     }
 
+    if (ti == 1) {
+        t1_warmup_end = 1;
+    }
+
     /* Run test */
-#pragma omp barrier
     status = ucx_perf_funcs[params->api].run(perf);
     ucx_perf_funcs[params->api].barrier(perf);
     if (UCS_OK != status) {
         goto out;
     }
 
+#pragma omp barrier
     ucx_perf_calc_result(perf, result);
 
 out:
@@ -126,7 +134,7 @@ ucs_status_t ucx_perf_thread_spawn(ucx_perf_context_t *perf,
 #pragma omp parallel private(ti)
 {
     ti              = omp_get_thread_num();
-    tctx[ti].status = ucx_perf_thread_run_test((void*)&tctx[ti]);
+    tctx[ti].status = ucx_perf_thread_run_test((void*)&tctx[ti], ti);
 }
 
     status = UCS_OK;
