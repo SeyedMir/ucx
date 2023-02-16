@@ -1207,7 +1207,6 @@ ucs_status_t ucp_worker_iface_open(ucp_worker_h worker, ucp_rsc_index_t tl_id,
     ucp_context_h context            = worker->context;
     ucp_tl_resource_desc_t *resource = &context->tl_rscs[tl_id];
     uct_md_h md                      = context->tl_mds[resource->md_index].md;
-    ucs_sys_dev_distance_t distance  = {.latency = 0, .bandwidth = 0};
     uct_iface_config_t *iface_config;
     ucp_worker_iface_t *wiface;
     ucs_status_t status;
@@ -1304,16 +1303,16 @@ ucs_status_t ucp_worker_iface_open(ucp_worker_h worker, ucp_rsc_index_t tl_id,
         goto err_close_iface;
     }
 
-    if (!context->config.ext.proto_enable) {
-        status = ucp_worker_get_sys_device_distance(context, wiface->rsc_index,
-                                                    &distance);
-        if (status == UCS_OK) {
-            wiface->attr.latency.c          += distance.latency;
-            wiface->attr.bandwidth.shared    =
-                    ucs_min(wiface->attr.bandwidth.shared, distance.bandwidth);
-            wiface->attr.bandwidth.dedicated = ucs_min(
-                    wiface->attr.bandwidth.dedicated, distance.bandwidth);
-        }
+    status = ucp_worker_get_sys_device_distance(context, wiface->rsc_index,
+                                                &wiface->distance);
+    if (status != UCS_OK) {
+        wiface->distance = ucs_topo_default_distance;
+    } else if (!context->config.ext.proto_enable) {
+        wiface->attr.latency.c       += wiface->distance.latency;
+        wiface->attr.bandwidth.shared = ucs_min(wiface->attr.bandwidth.shared,
+                                                wiface->distance.bandwidth);
+        wiface->attr.bandwidth.dedicated = ucs_min(
+                wiface->attr.bandwidth.dedicated, wiface->distance.bandwidth);
     }
 
     ucs_debug("created interface[%d]=%p using "UCT_TL_RESOURCE_DESC_FMT" on worker %p",
