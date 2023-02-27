@@ -1803,5 +1803,44 @@ unsigned ucp_ep_init_flags(const ucp_worker_h worker,
     return flags;
 }
 
+double ucp_wireup_iface_lat_distance_v1(ucp_context_h context,
+                                        const ucs_linear_func_t *latency,
+                                        const ucs_sys_dev_distance_t *distance)
+{
+    return (context->config.ext.proto_enable) ?
+        (latency->c + distance->latency) : latency->c;
+}
+
+double ucp_wireup_iface_lat_distance_v2(ucp_context_h context,
+                                        const ucs_linear_func_t *latency,
+                                        const ucs_sys_dev_distance_t *distance)
+{
+    ucs_linear_func_t lat;
+
+    if (context->config.ext.proto_enable)
+    {
+        lat    = *latency;
+        lat.c += distance->latency;
+        return ucp_tl_iface_latency(context, &lat);
+    } else {
+        return ucp_tl_iface_latency(context, latency);
+    }
+}
+
+double ucp_wireup_iface_bw_distance(ucp_context_h context,
+                                    const uct_ppn_bandwidth_t *bandwidth,
+                                    const ucs_sys_dev_distance_t *distance)
+{
+    uct_ppn_bandwidth_t bw;
+
+    if (context->config.ext.proto_enable) {
+        bw.shared    = ucs_min(bandwidth->shared, distance->bandwidth);
+        bw.dedicated = ucs_min(bandwidth->dedicated, distance->bandwidth);
+        return ucp_tl_iface_bandwidth(context, &bw);
+    } else {
+        return ucp_tl_iface_bandwidth(context, bandwidth);
+    }
+}
+
 UCP_DEFINE_AM(UINT64_MAX, UCP_AM_ID_WIREUP, ucp_wireup_msg_handler,
               ucp_wireup_msg_dump, UCT_CB_FLAG_ASYNC);

@@ -208,6 +208,16 @@ uct_ep_h ucp_wireup_extract_lane(ucp_ep_h ep, ucp_lane_index_t lane);
 
 unsigned ucp_wireup_eps_progress(void *arg);
 
+double ucp_wireup_iface_lat_distance_v1(ucp_context_h context,
+                                        const ucs_linear_func_t *latency,
+                                        const ucs_sys_dev_distance_t *distance);
+double ucp_wireup_iface_lat_distance_v2(ucp_context_h context,
+                                        const ucs_linear_func_t *latency,
+                                        const ucs_sys_dev_distance_t *distance);
+double ucp_wireup_iface_bw_distance(ucp_context_h context,
+                                    const uct_ppn_bandwidth_t *bandwidth,
+                                    const ucs_sys_dev_distance_t *distance);
+
 static inline int ucp_wireup_lane_types_has_fast_path(ucp_lane_map_t lane_types)
 {
     return lane_types &
@@ -219,27 +229,6 @@ static inline int ucp_wireup_lane_types_has_fast_path(ucp_lane_map_t lane_types)
 static inline int ucp_wireup_lane_type_is_fast_path(ucp_lane_type_t lane_type)
 {
     return ucp_wireup_lane_types_has_fast_path(UCS_BIT(lane_type));
-}
-
-static inline double
-ucp_tl_iface_latency_distance(ucp_context_h context,
-                              const ucs_linear_func_t *latency,
-                              const ucs_sys_dev_distance_t *distance)
-{
-    ucs_linear_func_t lat = *latency;
-    lat.c                += distance->latency;
-    return ucp_tl_iface_latency(context, &lat);
-}
-
-static inline double
-ucp_tl_iface_bandwidth_distance(ucp_context_h context,
-                                const uct_ppn_bandwidth_t *bandwidth,
-                                const ucs_sys_dev_distance_t *distance)
-{
-    uct_ppn_bandwidth_t bw;
-    bw.shared    = ucs_min(bandwidth->shared, distance->bandwidth);
-    bw.dedicated = ucs_min(bandwidth->dedicated, distance->bandwidth);
-    return ucp_tl_iface_bandwidth(context, &bw);
 }
 
 #endif

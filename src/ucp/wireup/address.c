@@ -674,16 +674,12 @@ ucp_address_pack_iface_attr_v1(ucp_worker_h worker, void *ptr,
 {
     ucp_address_packed_iface_attr_t *packed = ptr;
 
-    if (worker->context->config.ext.proto_enable) {
-        packed->lat_ovh   = iface_attr->latency.c + distance->latency;
-        packed->bandwidth = ucp_tl_iface_bandwidth_distance(
-                worker->context, &iface_attr->bandwidth, distance);
-    } else {
-        packed->lat_ovh   = iface_attr->latency.c;
-        packed->bandwidth = ucp_tl_iface_bandwidth(worker->context,
-                                                   &iface_attr->bandwidth);
-    }
-
+    packed->lat_ovh   = ucp_wireup_iface_lat_distance_v1(worker->context,
+                                                         &iface_attr->latency,
+                                                         distance);
+    packed->bandwidth = ucp_wireup_iface_bw_distance(worker->context,
+                                                     &iface_attr->bandwidth,
+                                                     distance);
     packed->overhead       = iface_attr->overhead;
     /* Pack prio, capability and atomic flags */
     packed->prio_cap_flags = (uint8_t)iface_attr->priority |
@@ -733,27 +729,17 @@ ucp_address_pack_iface_attr_v2(ucp_worker_h worker, void *ptr,
     ucp_address_v2_packed_iface_attr_t *packed = ptr;
 
     uint64_t addr_iface_flags;
-    double latency_nsec, overhead_nsec, bandwidth;
+    double latency_nsec, overhead_nsec, latency, bandwidth;
     size_t seg_size;
 
-    if (worker->context->config.ext.proto_enable) {
-        latency_nsec = ucp_tl_iface_latency_distance(worker->context,
-                                                     &iface_attr->latency,
-                                                     distance) *
-                       UCS_NSEC_PER_SEC;
+    latency   = ucp_wireup_iface_lat_distance_v2(worker->context,
+                                                 &iface_attr->latency,
+                                                 distance);
+    bandwidth = ucp_wireup_iface_bw_distance(worker->context,
+                                             &iface_attr->bandwidth,
+                                             distance);
 
-        bandwidth = ucp_tl_iface_bandwidth_distance(worker->context,
-                                                    &iface_attr->bandwidth,
-                                                    distance);
-    } else {
-        latency_nsec = ucp_tl_iface_latency(worker->context,
-                                            &iface_attr->latency) *
-                       UCS_NSEC_PER_SEC;
-
-        bandwidth = ucp_tl_iface_bandwidth(worker->context,
-                                           &iface_attr->bandwidth);
-    }
-
+    latency_nsec  = latency * UCS_NSEC_PER_SEC;
     overhead_nsec = iface_attr->overhead * UCS_NSEC_PER_SEC;
 
     packed->overhead  = UCS_FP8_PACK(OVERHEAD, overhead_nsec);
@@ -782,6 +768,7 @@ static int ucp_address_pack_iface_attr(ucp_worker_h worker, void *ptr,
 {
     unsigned atomic_flags = 0;
     unsigned packed_len;
+    double lat_ovh;
     ucp_address_unified_iface_attr_t *unified;
 
     if (ucp_worker_is_unified_mode(worker)) {
@@ -791,12 +778,14 @@ static int ucp_address_pack_iface_attr(ucp_worker_h worker, void *ptr,
          * depends on device NUMA locality. */
         unified            = ptr;
         unified->rsc_index = rsc_index;
-        unified->lat_ovh   = worker->context->config.ext.proto_enable ?
-                                       iface_attr->latency.c + distance->latency :
-                                       iface_attr->latency.c;
+        lat_ovh            = (worker->context->config.ext.proto_enable) ?
+                                     iface_attr->latency.c + distance->latency :
+                                     iface_attr->latency.c;
         if (enable_atomics) {
-            unified->lat_ovh = -unified->lat_ovh;
+            lat_ovh = -lat_ovh;
         }
+
+        unified->lat_ovh = lat_ovh;
 
         return sizeof(*unified);
     }

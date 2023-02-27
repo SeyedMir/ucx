@@ -652,40 +652,36 @@ static double ucp_wireup_fp8_pack_unpack_latency(double latency)
     return UCS_FP8_UNPACK(LATENCY, packed_lat) / UCS_NSEC_PER_SEC;
 }
 
+static double ucp_wireup_fp8_pack_unpack_bw(double bandwidth)
+{
+    ucs_fp8_t packed_bw = UCS_FP8_PACK(BANDWIDTH, bandwidth);
+    return UCS_FP8_UNPACK(BANDWIDTH, packed_bw);
+}
+
 static inline double
 ucp_wireup_tl_iface_latency(const ucp_worker_iface_t *wiface,
                             const ucp_address_iface_attr_t *remote_iface_attr)
 {
     ucp_context_h context = wiface->worker->context;
-    double local_lat;
+    double local_lat, lat_nsec, lat_lossy;
 
     if (remote_iface_attr->addr_version == UCP_OBJECT_VERSION_V1) {
-        /* With the old protocols, iface latency/bw attributes are already
-         * updated based on topology distance. That is NOT the case with the
-         * new protocols for the local iface. Therefore, we need to add the
-         * distance latency for the local iface in here.
-         * Remote iface latency/bw always carry distance-updated values. */
-        local_lat = context->config.ext.proto_enable ?
-                            (wiface->attr.latency.c +
-                             wiface->distance.latency) :
-                            wiface->attr.latency.c;
+        local_lat = ucp_wireup_iface_lat_distance_v1(context,
+                                                     &wiface->attr.latency,
+                                                     &wiface->distance);
         /* Address v1 contains just latency overhead */
         return ((local_lat + remote_iface_attr->lat_ovh) / 2) +
                (wiface->attr.latency.m * context->config.est_num_eps);
     } else {
+        local_lat = ucp_wireup_iface_lat_distance_v2(context,
+                                                     &wiface->attr.latency,
+                                                     &wiface->distance);
         /* FP8 is a lossy compression method, so in order to create a symmetric
          * calculation we pack/unpack the local latency as well */
-        local_lat = context->config.ext.proto_enable ?
-                            ucp_tl_iface_latency_distance(context,
-                                                          &wiface->attr.latency,
-                                                          &wiface->distance) :
-                            ucp_tl_iface_latency(context,
-                                                 &wiface->attr.latency);
+        lat_nsec  = local_lat * UCS_NSEC_PER_SEC;
+        lat_lossy = ucp_wireup_fp8_pack_unpack_latency(lat_nsec);
 
-        local_lat *= UCS_NSEC_PER_SEC;
-        local_lat  = ucp_wireup_fp8_pack_unpack_latency(local_lat);
-
-        return (remote_iface_attr->lat_ovh + local_lat) / 2;
+        return (remote_iface_attr->lat_ovh + lat_lossy) / 2;
     }
 }
 
@@ -1229,12 +1225,6 @@ static double ucp_tl_iface_bandwidth_ratio(ucp_context_h context,
     return ucs_max(1e-5, 1.0 - ratio);
 }
 
-static double ucp_wireup_fp8_pack_unpack_bandwidth(double bandwidth)
-{
-    ucs_fp8_t packed_bw = UCS_FP8_PACK(BANDWIDTH, bandwidth);
-    return UCS_FP8_UNPACK(BANDWIDTH, packed_bw);
-}
-
 static double
 ucp_wireup_iface_avail_bandwidth(const ucp_worker_iface_t *wiface,
                                  const ucp_address_entry_t *remote_addr,
@@ -1246,20 +1236,16 @@ ucp_wireup_iface_avail_bandwidth(const ucp_worker_iface_t *wiface,
     double eps                = 1e-3;
     double local_bw, remote_bw;
 
-    local_bw = context->config.ext.proto_enable ?
-                       ucp_tl_iface_bandwidth_distance(context,
-                                                       &wiface->attr.bandwidth,
-                                                       &wiface->distance) :
-                       ucp_tl_iface_bandwidth(context, &wiface->attr.bandwidth);
-
-    local_bw *= ucp_tl_iface_bandwidth_ratio(context,
-                                             local_dev_count[dev_index],
-                                             wiface->attr.dev_num_paths);
+    local_bw = ucp_wireup_iface_bw_distance(context,
+                                            &wiface->attr.bandwidth,
+                                            &wiface->distance) *
+         ucp_tl_iface_bandwidth_ratio(context, local_dev_count[dev_index],
+                                      wiface->attr.dev_num_paths);
 
     if (remote_addr->iface_attr.addr_version == UCP_OBJECT_VERSION_V2) {
         /* FP8 is a lossy compression method, so in order to create a symmetric
          * calculation we pack/unpack the local bandwidth as well */
-        local_bw = ucp_wireup_fp8_pack_unpack_bandwidth(local_bw);
+        local_bw = ucp_wireup_fp8_pack_unpack_bw(local_bw);
     }
 
     remote_bw = remote_addr->iface_attr.bandwidth *
