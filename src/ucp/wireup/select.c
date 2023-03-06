@@ -666,20 +666,17 @@ ucp_wireup_tl_iface_latency(const ucp_worker_iface_t *wiface,
     double local_lat, lat_nsec, lat_lossy;
 
     if (remote_iface_attr->addr_version == UCP_OBJECT_VERSION_V1) {
-        local_lat = ucp_wireup_iface_lat_distance_v1(context,
-                                                     &wiface->attr.latency,
-                                                     &wiface->distance);
+        local_lat = ucp_wireup_iface_lat_distance_v1(wiface);
         /* Address v1 contains just latency overhead */
         return ((local_lat + remote_iface_attr->lat_ovh) / 2) +
                (wiface->attr.latency.m * context->config.est_num_eps);
     } else {
-        local_lat = ucp_wireup_iface_lat_distance_v2(context,
-                                                     &wiface->attr.latency,
-                                                     &wiface->distance);
+        local_lat = ucp_wireup_iface_lat_distance_v2(wiface);
         /* FP8 is a lossy compression method, so in order to create a symmetric
          * calculation we pack/unpack the local latency as well */
         lat_nsec  = local_lat * UCS_NSEC_PER_SEC;
-        lat_lossy = ucp_wireup_fp8_pack_unpack_latency(lat_nsec);
+        lat_lossy = ucp_wireup_fp8_pack_unpack_latency(lat_nsec) /
+                    UCS_NSEC_PER_SEC;
 
         return (remote_iface_attr->lat_ovh + lat_lossy) / 2;
     }
@@ -1236,9 +1233,7 @@ ucp_wireup_iface_avail_bandwidth(const ucp_worker_iface_t *wiface,
     double eps                = 1e-3;
     double local_bw, remote_bw;
 
-    local_bw = ucp_wireup_iface_bw_distance(context,
-                                            &wiface->attr.bandwidth,
-                                            &wiface->distance) *
+    local_bw = ucp_wireup_iface_bw_distance(wiface) *
          ucp_tl_iface_bandwidth_ratio(context, local_dev_count[dev_index],
                                       wiface->attr.dev_num_paths);
 

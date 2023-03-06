@@ -208,15 +208,11 @@ uct_ep_h ucp_wireup_extract_lane(ucp_ep_h ep, ucp_lane_index_t lane);
 
 unsigned ucp_wireup_eps_progress(void *arg);
 
-double ucp_wireup_iface_lat_distance_v1(ucp_context_h context,
-                                        const ucs_linear_func_t *latency,
-                                        const ucs_sys_dev_distance_t *distance);
-double ucp_wireup_iface_lat_distance_v2(ucp_context_h context,
-                                        const ucs_linear_func_t *latency,
-                                        const ucs_sys_dev_distance_t *distance);
-double ucp_wireup_iface_bw_distance(ucp_context_h context,
-                                    const uct_ppn_bandwidth_t *bandwidth,
-                                    const ucs_sys_dev_distance_t *distance);
+double ucp_wireup_iface_lat_distance_v1(const ucp_worker_iface_t *wiface);
+
+double ucp_wireup_iface_lat_distance_v2(const ucp_worker_iface_t *wiface);
+
+double ucp_wireup_iface_bw_distance(const ucp_worker_iface_t *wiface);
 
 static inline int ucp_wireup_lane_types_has_fast_path(ucp_lane_map_t lane_types)
 {

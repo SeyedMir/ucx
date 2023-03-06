@@ -667,20 +667,15 @@ static uint64_t ucp_address_flags_from_iface_flags(uint64_t iface_cap_flags,
 }
 
 static unsigned
-ucp_address_pack_iface_attr_v1(ucp_worker_h worker, void *ptr,
-                               const uct_iface_attr_t *iface_attr,
-                               const ucs_sys_dev_distance_t *distance,
+ucp_address_pack_iface_attr_v1(const ucp_worker_iface_t *wiface, void *ptr,
                                unsigned atomic_flags)
 {
+    const uct_iface_attr_t *iface_attr      = &wiface->attr;
     ucp_address_packed_iface_attr_t *packed = ptr;
 
-    packed->lat_ovh   = ucp_wireup_iface_lat_distance_v1(worker->context,
-                                                         &iface_attr->latency,
-                                                         distance);
-    packed->bandwidth = ucp_wireup_iface_bw_distance(worker->context,
-                                                     &iface_attr->bandwidth,
-                                                     distance);
-    packed->overhead       = iface_attr->overhead;
+    packed->lat_ovh   = ucp_wireup_iface_lat_distance_v1(wiface);
+    packed->bandwidth = ucp_wireup_iface_bw_distance(wiface);
+    packed->overhead  = iface_attr->overhead;
     /* Pack prio, capability and atomic flags */
     packed->prio_cap_flags = (uint8_t)iface_attr->priority |
                              ucp_address_pack_flags(iface_attr->cap.flags,
@@ -721,23 +716,18 @@ size_t ucp_address_iface_seg_size(const uct_iface_attr_t *iface_attr)
 }
 
 static unsigned
-ucp_address_pack_iface_attr_v2(ucp_worker_h worker, void *ptr,
-                               const uct_iface_attr_t *iface_attr,
-                               const ucs_sys_dev_distance_t *distance,
+ucp_address_pack_iface_attr_v2(const ucp_worker_iface_t *wiface, void *ptr,
                                unsigned atomic_flags)
 {
+    const uct_iface_attr_t *iface_attr         = &wiface->attr;
     ucp_address_v2_packed_iface_attr_t *packed = ptr;
 
     uint64_t addr_iface_flags;
     double latency_nsec, overhead_nsec, latency, bandwidth;
     size_t seg_size;
 
-    latency   = ucp_wireup_iface_lat_distance_v2(worker->context,
-                                                 &iface_attr->latency,
-                                                 distance);
-    bandwidth = ucp_wireup_iface_bw_distance(worker->context,
-                                             &iface_attr->bandwidth,
-                                             distance);
+    latency   = ucp_wireup_iface_lat_distance_v2(wiface);
+    bandwidth = ucp_wireup_iface_bw_distance(wiface);
 
     latency_nsec  = latency * UCS_NSEC_PER_SEC;
     overhead_nsec = iface_attr->overhead * UCS_NSEC_PER_SEC;
@@ -758,15 +748,15 @@ ucp_address_pack_iface_attr_v2(ucp_worker_h worker, void *ptr,
     return sizeof(*packed);
 }
 
-static int ucp_address_pack_iface_attr(ucp_worker_h worker, void *ptr,
-                                       ucp_rsc_index_t rsc_index,
-                                       const uct_iface_attr_t *iface_attr,
-                                       const ucs_sys_dev_distance_t *distance,
+static int ucp_address_pack_iface_attr(const ucp_worker_iface_t *wiface,
+                                       void *ptr, ucp_rsc_index_t rsc_index,
                                        unsigned pack_flags,
                                        ucp_object_version_t addr_version,
                                        int enable_atomics)
 {
-    unsigned atomic_flags = 0;
+    const uct_iface_attr_t *iface_attr = &wiface->attr;
+    ucp_worker_h worker                = wiface->worker;
+    unsigned atomic_flags              = 0;
     unsigned packed_len;
     double lat_ovh;
     ucp_address_unified_iface_attr_t *unified;
@@ -778,13 +768,10 @@ static int ucp_address_pack_iface_attr(ucp_worker_h worker, void *ptr,
          * depends on device NUMA locality. */
         unified            = ptr;
         unified->rsc_index = rsc_index;
-        lat_ovh            = (worker->context->config.ext.proto_enable) ?
-                                     iface_attr->latency.c + distance->latency :
-                                     iface_attr->latency.c;
+        lat_ovh            = ucp_wireup_iface_lat_distance_v1(wiface);
         if (enable_atomics) {
             lat_ovh = -lat_ovh;
         }
-
         unified->lat_ovh = lat_ovh;
 
         return sizeof(*unified);
@@ -806,11 +793,9 @@ static int ucp_address_pack_iface_attr(ucp_worker_h worker, void *ptr,
     }
 
     if (addr_version == UCP_OBJECT_VERSION_V1) {
-        packed_len = ucp_address_pack_iface_attr_v1(worker, ptr, iface_attr,
-                                                    distance, atomic_flags);
+        packed_len = ucp_address_pack_iface_attr_v1(wiface, ptr, atomic_flags);
     } else {
-        packed_len = ucp_address_pack_iface_attr_v2(worker, ptr, iface_attr,
-                                                    distance, atomic_flags);
+        packed_len = ucp_address_pack_iface_attr_v2(wiface, ptr, atomic_flags);
     }
 
     if (pack_flags & UCP_ADDRESS_PACK_FLAG_TL_RSC_IDX) {
@@ -1288,9 +1273,7 @@ ucp_address_do_pack(ucp_worker_h worker, ucp_ep_h ep, void *buffer, size_t size,
 
             /* Transport information */
             enable_amo = UCS_BITMAP_GET(worker->atomic_tls, rsc_index);
-            attr_len   = ucp_address_pack_iface_attr(worker, ptr, rsc_index,
-                                                     iface_attr,
-                                                     &wiface->distance,
+            attr_len   = ucp_address_pack_iface_attr(wiface, ptr, rsc_index,
                                                      pack_flags, addr_version,
                                                      enable_amo);
             if (attr_len < 0) {

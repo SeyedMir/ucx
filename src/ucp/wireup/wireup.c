@@ -1803,34 +1803,33 @@ unsigned ucp_ep_init_flags(const ucp_worker_h worker,
     return flags;
 }
 
-double ucp_wireup_iface_lat_distance_v1(ucp_context_h context,
-                                        const ucs_linear_func_t *latency,
-                                        const ucs_sys_dev_distance_t *distance)
+double ucp_wireup_iface_lat_distance_v1(const ucp_worker_iface_t *wiface)
 {
-    return (context->config.ext.proto_enable) ?
-        (latency->c + distance->latency) : latency->c;
+    return wiface->worker->context->config.ext.proto_enable ?
+        (wiface->attr.latency.c + wiface->distance.latency) :
+        wiface->attr.latency.c;
 }
 
-double ucp_wireup_iface_lat_distance_v2(ucp_context_h context,
-                                        const ucs_linear_func_t *latency,
-                                        const ucs_sys_dev_distance_t *distance)
+double ucp_wireup_iface_lat_distance_v2(const ucp_worker_iface_t *wiface)
 {
+    ucp_context_h context = wiface->worker->context;
     ucs_linear_func_t lat;
 
     if (context->config.ext.proto_enable)
     {
-        lat    = *latency;
-        lat.c += distance->latency;
+        lat    = wiface->attr.latency;
+        lat.c += wiface->distance.latency;
         return ucp_tl_iface_latency(context, &lat);
     } else {
-        return ucp_tl_iface_latency(context, latency);
+        return ucp_tl_iface_latency(context, &wiface->attr.latency);
     }
 }
 
-double ucp_wireup_iface_bw_distance(ucp_context_h context,
-                                    const uct_ppn_bandwidth_t *bandwidth,
-                                    const ucs_sys_dev_distance_t *distance)
+double ucp_wireup_iface_bw_distance(const ucp_worker_iface_t *wiface)
 {
+    ucp_context_h context                  = wiface->worker->context;
+    const uct_ppn_bandwidth_t *bandwidth   = &wiface->attr.bandwidth;
+    const ucs_sys_dev_distance_t *distance = &wiface->distance;
     uct_ppn_bandwidth_t bw;
 
     if (context->config.ext.proto_enable) {

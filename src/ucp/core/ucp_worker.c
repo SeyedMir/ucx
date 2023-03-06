@@ -1306,9 +1306,9 @@ ucs_status_t ucp_worker_iface_open(ucp_worker_h worker, ucp_rsc_index_t tl_id,
     ucp_worker_get_sys_device_distance(context, wiface->rsc_index,
                                        &wiface->distance);
     if (!context->config.ext.proto_enable) {
-        wiface->attr.latency.c       += wiface->distance.latency;
-        wiface->attr.bandwidth.shared = ucs_min(wiface->attr.bandwidth.shared,
-                                                wiface->distance.bandwidth);
+        wiface->attr.latency.c          += wiface->distance.latency;
+        wiface->attr.bandwidth.shared    = ucs_min(wiface->attr.bandwidth.shared,
+                                                   wiface->distance.bandwidth);
         wiface->attr.bandwidth.dedicated = ucs_min(
                 wiface->attr.bandwidth.dedicated, wiface->distance.bandwidth);
     }
