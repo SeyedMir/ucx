@@ -364,15 +364,40 @@ uct_cuda_copy_mem_alloc(uct_md_h uct_md, size_t *length_p, void **address_p,
                 alloc_handle->length);
         status = UCS_ERR_NO_MEMORY;
     } else if (mem_type == UCS_MEMORY_TYPE_CUDA_MANAGED) {
+        CUmemLocation location_dev;
+        CUdevice cu_device;
+        CUstream stream;
         status = UCT_CUDADRV_FUNC(
                 cuMemAllocManaged(&alloc_handle->ptr, alloc_handle->length,
                                   CU_MEM_ATTACH_GLOBAL), log_level);
+        if (status != UCS_OK) goto error;
+
+        status = UCT_CUDADRV_FUNC_LOG_ERR(cuCtxGetDevice(&cu_device));
+        if (status != UCS_OK) goto error;
+
+        location_dev.type = CU_MEM_LOCATION_TYPE_DEVICE;
+        location_dev.id   = cu_device;
+        status = UCT_CUDADRV_FUNC_LOG_ERR(
+                 cuMemAdvise_v2(alloc_handle->ptr, alloc_handle->length,
+                                CU_MEM_ADVISE_SET_PREFERRED_LOCATION, location_dev));
+        if (status != UCS_OK) goto error;
+
+        status = UCT_CUDADRV_FUNC_LOG_ERR(cuStreamCreate(&stream, CU_STREAM_NON_BLOCKING));
+        if (status != UCS_OK) goto error;
+
+        status = UCT_CUDADRV_FUNC_LOG_ERR(cuMemPrefetchAsync(alloc_handle->ptr, alloc_handle->length, cu_device, stream));
+        if (status == UCS_OK) {
+            status = UCT_CUDADRV_FUNC_LOG_ERR(cuStreamSynchronize(stream));
+        }
+        cuStreamDestroy(stream);
+
     } else {
         ucs_log(log_level,
                 "allocation mem_types supported: cuda, cuda-managed");
         status = UCS_ERR_INVALID_PARAM;
     }
 
+error:
     if (status != UCS_OK) {
         ucs_free(alloc_handle);
         return status;

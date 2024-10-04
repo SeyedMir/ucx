@@ -483,7 +483,7 @@ static ucs_status_t setup_sock_rte_p2p(struct perftest_context *ctx)
     ctx->sock_rte_group.size = 2;
 
     if (ctx->sock_rte_group.is_server) {
-        ctx->flags |= TEST_FLAG_PRINT_TEST;
+        ctx->flags |= TEST_FLAG_PRINT_TEST | TEST_FLAG_PRINT_RESULTS;
     } else {
         ctx->flags |= TEST_FLAG_PRINT_RESULTS;
     }
