@@ -238,12 +238,17 @@ void set_sock_addr(const char *address_str, struct sockaddr_storage *saddr)
 }
 
 /**
- * Initialize the client side. Create an endpoint from each client GPU-specific
- * worker to the remote server (to the given IP).
+ * Create an endpoint from each client GPU-specific
+ * worker to each remote server GPU-specific worker (to the given IP).
  */
-static ucs_status_t start_client(ucp_worker_h ucp_worker,
-                                 const char *address_str, ucp_ep_h *client_ep)
+static int client_create_eps(ucp_worker_h *ucp_workers, int dev_count,
+                             const char *address_str, ucp_ep_h **client_eps)
 {
+    /* Client must send one separate connection request to the server for each
+     * clientGPU-ServerGPU pair of workers. The requests must be sent in the
+     * order of the client-server GPU id pairs (see server_create_eps).
+     * Note that all the requests are sent to one signle listener on the
+     * server. That is, we don't need one listener per worker. */
     ucp_ep_params_t ep_params;
     struct sockaddr_storage connect_addr;
     ucs_status_t status;
@@ -275,13 +280,19 @@ static ucs_status_t start_client(ucp_worker_h ucp_worker,
     ep_params.sockaddr.addr    = (struct sockaddr*)&connect_addr;
     ep_params.sockaddr.addrlen = sizeof(connect_addr);
 
-    status = ucp_ep_create(ucp_worker, &ep_params, client_ep);
-    if (status != UCS_OK) {
-        fprintf(stderr, "failed to connect to %s (%s)\n", address_str,
-                ucs_status_string(status));
+    for (int client_dev = 0; client_dev < dev_count; client_dev++) {
+        for (int server_dev = 0; server_dev < dev_count; server_dev++) {
+            status = ucp_ep_create(ucp_workers[client_dev], &ep_params,
+                                   &client_eps[client_dev][server_dev]);
+            if (status != UCS_OK) {
+                fprintf(stderr, "failed to connect to %s (%s)\n", address_str,
+                        ucs_status_string(status));
+                return -1;
+            }
+        }
     }
 
-    return status;
+    return 0;
 }
 
 static void print_iov(const ucp_dt_iov_t *iov)
@@ -897,8 +908,7 @@ static ucs_status_t server_create_eps(ucp_worker_h *ucp_workers,
                                       context.conn_request,
                                       &server_eps[server_dev][client_dev]);
             if (status != UCS_OK) {
-                ret = -1;
-                goto err_listener;
+                return -1;
             }
 
             /* Now we are ready to accept the next request, but only
@@ -907,6 +917,7 @@ static ucs_status_t server_create_eps(ucp_worker_h *ucp_workers,
         }
     }
 
+    return 0;
 }
 
 /**
@@ -1057,7 +1068,11 @@ static int run_server(ucp_context_h *ucp_contexts, ucp_worker_h *ucp_workers,
 
     /* Server is always up listening */
     while (1) {
-        server_create_eps(ucp_workers, dev_count, server_eps);
+        ret = server_create_eps(ucp_workers, dev_count, server_eps);
+
+        if (ret != 0) {
+            goto err_ep;
+        }
 
         /* The server waits for all the iterations and all GPU pairs to complete
          * before moving on to the next client */
@@ -1068,7 +1083,7 @@ static int run_server(ucp_context_h *ucp_contexts, ucp_worker_h *ucp_workers,
         }
 
         /* Close all the endpoints to the client */
-        close_eps(server_eps, dev_count);
+        close_eps(ucp_workers, server_eps, dev_count);
 
         /* Reinitialize the server's context to be used for the next client */
         context.conn_request = NULL;
@@ -1087,24 +1102,25 @@ err:
     return ret;
 }
 
-static int run_client(ucp_worker_h *ucp_workers, char *server_addr,
-                      send_recv_type_t send_recv_type)
+static int run_client(ucp_worker_h *ucp_workers, int dev_count,
+                      char *server_addr, send_recv_type_t send_recv_type)
 {
-    ucp_ep_h     client_ep;
+    ucp_ep_h     client_eps[MAX_DEV_COUNT][MAX_DEV_COUNT];
     ucs_status_t status;
     int          ret;
 
-    status = start_client(ucp_worker, server_addr, &client_ep);
-    if (status != UCS_OK) {
-        fprintf(stderr, "failed to start client (%s)\n", ucs_status_string(status));
+    ret = client_create_eps(ucp_workers, dev_count, server_addr, client_eps);
+    if (ret != 0) {
+        fprintf(stderr, "failed to create client eps(%s)\n",
+                ucs_status_string(status));
         ret = -1;
         goto out;
     }
 
     ret = client_server_do_work(ucp_worker, client_ep, send_recv_type, 0);
 
-    /* Close the endpoint to the server */
-    ep_close(ucp_worker, client_ep, UCP_EP_CLOSE_FLAG_FORCE);
+    /* Close all the endpoints to the server */
+    close_eps(ucp_workers, client_eps, dev_count);
 
 out:
     return ret;
@@ -1202,14 +1218,17 @@ int main(int argc, char **argv)
     /* Client-Server initialization */
     if (server_addr == NULL) {
         /* Server side */
-        ret = run_server(ucp_context, ucp_worker, listen_addr, send_recv_type);
+        ret = run_server(ucp_contexts, ucp_workers, int dev_count,
+                         listen_addr, send_recv_type);
     } else {
         /* Client side */
-        ret = run_client(ucp_worker, server_addr, send_recv_type);
+        ret = run_client(ucp_workers, dev_count, server_addr, send_recv_type);
     }
 
-    ucp_worker_destroy(ucp_worker);
-    ucp_cleanup(ucp_context);
+    for (int dev_id = 0; dev_id < dev_count; dev_id++) {
+        ucp_worker_destroy(ucp_workers[dev_id]);
+        ucp_cleanup(ucp_contexts[dev_id]);
+    }
 err:
     return ret;
 }
