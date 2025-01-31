@@ -73,7 +73,6 @@ typedef struct uct_cuda_copy_iface {
             double              h2d;
             double              d2h;
             double              d2d;
-            double              other;
         } bw;
     } config;
     /* handler to support arm/wakeup feature */
@@ -96,7 +95,6 @@ typedef struct uct_cuda_copy_iface_config {
         double              h2d;
         double              d2h;
         double              d2d;
-        double              other;
     } bw;
 } uct_cuda_copy_iface_config_t;
 
